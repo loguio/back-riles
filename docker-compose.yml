@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: riles_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: riles_user
+      POSTGRES_PASSWORD: riles_password
+      POSTGRES_DB: riles_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - riles_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U riles_user -d riles_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: riles_backend
+    restart: unless-stopped
+    environment:
+      PORT: 3000
+      NODE_ENV: production
+      DATABASE_URL: "postgresql://riles_user:riles_password@postgres:5432/riles_db?schema=public"
+      JWT_SECRET: super-secret-riles-jwt-key-2026-change-in-prod
+      STRAVA_VERIFY_TOKEN: riles_strava_webhook_token_2026
+      GARMIN_WEBHOOK_SECRET: riles_garmin_webhook_secret_2026
+      APPLE_HEALTH_SECRET: riles_apple_health_secret_2026
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  riles_pgdata:
+

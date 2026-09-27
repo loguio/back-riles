@@ -1,0 +1,41 @@
+# Compiled output
+/dist
+/build
+
+# Dependencies
+/node_modules
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Environment variables & secrets
+.env
+.env.production
+.env.staging
+.env.local
+*.env
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.idea
+.vscode
+*.swp
+*.swo
+
+# Test coverage
+/coverage
+
+# NestJS / TypeScript Cache
+*.tsbuildinfo
+.eslintcache
+
+# Prisma generated artifacts & SQLite (if any)
+*.db
+*.db-journal
+

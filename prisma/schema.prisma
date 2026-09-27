@@ -1,0 +1,189 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum WorkoutStatus {
+  DONE     @map("done")
+  SELECTED @map("selected")
+  REST     @map("rest")
+  UPCOMING @map("upcoming")
+}
+
+enum AuthProvider {
+  EMAIL  @map("email")
+  APPLE  @map("apple")
+  GOOGLE @map("google")
+}
+
+enum PlanType {
+  BASIC @map("basic")
+  PRO   @map("pro")
+}
+
+model User {
+  id             String  @id @default(cuid())
+  email          String  @unique
+  passwordHash   String?
+  name           String
+  initials       String
+  readinessScore Int     @default(88)
+
+  // Active Goal
+  activeGoalTitle              String @default("Semi-marathon de Paris")
+  activeGoalTarget             String @default("Passer sous les 2h")
+  activeGoalRaceDate           String @default("17 mars 2025")
+  activeGoalWeeksRemaining     Int    @default(6)
+  activeGoalProgressPercentage Int    @default(65)
+
+  // Overall Stats
+  activeWeeks    Int   @default(12)
+  totalKm        Float @default(328.0)
+  completedRaces Int   @default(4)
+
+  // Account Preferences & State
+  planType              PlanType     @default(PRO)
+  authProvider          AuthProvider @default(EMAIL)
+  isOnboardingCompleted Boolean      @default(true)
+  mainGoal              String?
+  selectedSports        String[]     @default(["running"])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  rules        LifeRule[]
+  workouts     Workout[]
+  rpeCheckIns  RpeCheckIn[]
+  syncTokens   SyncToken[]
+  chatMessages ChatMessage[]
+
+  @@map("users")
+}
+
+model LifeRule {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  description String
+  icon        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@map("life_rules")
+}
+
+model Workout {
+  id                 String        @id @default(cuid())
+  userId             String
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dateKey            String // "YYYY-MM-DD"
+  dayName            String // "Lun", "Mar", "Mer", etc.
+  dayNumber          Int
+  month              Int // 0-11
+  year               Int
+  weekNumber         Int
+  fullDateLabel      String // "MERCREDI 14 OCTOBRE"
+  timeLabel          String? // "AUJOURD'HUI • 18:30"
+  status             WorkoutStatus @default(UPCOMING)
+  isRestDay          Boolean       @default(false)
+  category           String // "SÉANCE QUALITATIVE"
+  title              String // "Sortie Seuil & Allure Cible"
+  duration           String // "1h15"
+  distance           String // "14 km"
+  targetPace         String // "4:50/km"
+  targetZoneLabel    String // "Zone 3–4"
+  targetZoneBpm      String // "158–172 bpm"
+  targetZoneSegments Json // Array of { color: string, flex: number }
+  pinPositionPercent Float         @default(50)
+  effortBlocks       Json // Array of EffortBlock { title, durationLabel, type, flexRatio }
+  tags               String[]      @default([])
+  aiAdjustmentNote   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rpeCheckIns RpeCheckIn[]
+
+  @@unique([userId, dateKey])
+  @@index([userId, weekNumber, year])
+  @@index([userId, month, year])
+  @@index([dateKey])
+  @@map("workouts")
+}
+
+model RpeCheckIn {
+  id                    String   @id @default(cuid())
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workoutId             String?
+  workout               Workout? @relation(fields: [workoutId], references: [id], onDelete: SetNull)
+  rating                Int // 1 to 10
+  feedbackLabel         String // "Très facile", "Modéré", "Difficile", "À fond"
+  aiPreservationMessage String
+  submittedAt           DateTime @default(now())
+
+  @@index([userId])
+  @@map("rpe_checkins")
+}
+
+model SyncToken {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider       String // "strava", "garmin", "polar", "coros", "suunto", "apple_health"
+  accessToken    String?
+  refreshToken   String?
+  expiresAt      DateTime?
+  externalUserId String?
+  isConnected    Boolean   @default(false)
+  metadata       Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, provider])
+  @@map("sync_tokens")
+}
+
+model ChatMessage {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sender          String // "user", "coach", "system"
+  text            String
+  timestamp       String // "18:32"
+  suggestedAction Json? // { type, label, applied, workoutId, details }
+  createdAt       DateTime @default(now())
+
+  @@index([userId])
+  @@map("chat_messages")
+}
+
+model QuickPrompt {
+  id      String @id @default(cuid())
+  label   String
+  message String
+  order   Int    @default(0)
+
+  @@map("quick_prompts")
+}
+
+model WebhookEvent {
+  id          String    @id @default(cuid())
+  provider    String // "strava", "garmin", "apple_health"
+  eventType   String // "activity.create", "health.summary", etc.
+  payload     Json
+  processed   Boolean   @default(false)
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@map("webhook_events")
+}

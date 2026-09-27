@@ -1,0 +1,27 @@
+# Node / Dependencies
+node_modules/
+
+# Build & Cache
+dist/
+build/
+.cache/
+*.tsbuildinfo
+
+# Lockfiles
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Secrets & Environment
+.env
+.env.*
+
+# Logs & Debug
+npm-debug.*
+yarn-debug.*
+yarn-error.log*
+*.log
+
+# System & OS
+.DS_Store
+
