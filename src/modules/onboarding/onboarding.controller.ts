@@ -13,7 +13,9 @@ import {
   ConnectedAppDto,
   SaveOnboardingStepDto,
   CompleteOnboardingDto,
+  ReformulateOnboardingGoalDto,
 } from "./dto/onboarding.dto";
+import { ReformulateGoalResultDto } from "../llm/dto/llm.dto";
 import { CurrentUserId } from "../../common/decorators/current-user.decorator";
 
 @ApiTags("Onboarding")
@@ -37,6 +39,20 @@ export class OnboardingController {
     @CurrentUserId() userId: string,
   ): Promise<ConnectedAppDto[]> {
     return this.onboardingService.getAppsCatalog(userId);
+  }
+
+  @Post("reformulate-goal")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      "Reformule l’objectif libre de l’utilisateur avec l’IA, extrait ses règles de vie et vérifie l’éligibilité physiologique",
+  })
+  @ApiResponse({ status: 200, type: ReformulateGoalResultDto })
+  async reformulateGoal(
+    @CurrentUserId() userId: string,
+    @Body() dto: ReformulateOnboardingGoalDto,
+  ): Promise<ReformulateGoalResultDto> {
+    return this.onboardingService.reformulateGoal(userId, dto.rawGoal);
   }
 
   @Post("step")
@@ -71,3 +87,4 @@ export class OnboardingController {
     return this.onboardingService.resetOnboarding(userId);
   }
 }
+

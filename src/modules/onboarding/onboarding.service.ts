@@ -1,5 +1,9 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
+import { DataLakeService } from "../datalake/datalake.service";
+import { LlmService } from "../llm/llm.service";
+import { WorkoutsService } from "../workouts/workouts.service";
+import { ReformulateGoalResultDto } from "../llm/dto/llm.dto";
 import {
   ConnectedAppDto,
   OnboardingStateDto,
@@ -55,7 +59,71 @@ export const CONNECTED_APPS_CATALOG: ConnectedAppDto[] = [
 
 @Injectable()
 export class OnboardingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly llmService: LlmService,
+    private readonly dataLakeService: DataLakeService,
+    private readonly workoutsService: WorkoutsService,
+  ) {}
+
+  async reformulateGoal(
+    userId: string,
+    rawGoal: string,
+  ): Promise<ReformulateGoalResultDto> {
+    const [user, recentWorkouts] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        include: { syncTokens: { where: { isConnected: true } } },
+      }),
+      this.prisma.workout.findMany({
+        where: { userId, isRestDay: false },
+        orderBy: { dateKey: "desc" },
+        take: 10,
+      }),
+    ]);
+
+    const recentSessions =
+      this.llmService.extractSessionMetricsFromWorkouts(recentWorkouts);
+    const hasSyncedHistory = Boolean(
+      user?.syncTokens && user.syncTokens.length > 0,
+    );
+    const recentWeeklyKm =
+      hasSyncedHistory && user?.totalKm && user?.activeWeeks
+        ? user.totalKm / Math.max(1, user.activeWeeks)
+        : undefined;
+    const longestRecentRunKm =
+      recentSessions && recentSessions.length > 0
+        ? Math.max(...recentSessions.map((s) => s.distanceKm || 0))
+        : undefined;
+
+    const result = await this.llmService.reformulateOnboardingGoal(rawGoal, {
+      hasSyncedHistory,
+      recentWeeklyKm,
+      longestRecentRunKm,
+      activeWeeks: user?.activeWeeks,
+      recentSessions,
+    });
+
+    // Log asynchrone dans le Data Lake
+    this.dataLakeService.logTrainingInteraction({
+      userId,
+      interactionType: "onboarding_goal_reformulation",
+      interaction: {
+        type: "goal_reformulation",
+        userPrompt: rawGoal,
+        aiResponse: result.reformulatedGoal,
+        extractedGoal: result.extractedGoal,
+        extractedRules: result.extractedRules,
+        eligibility: result.eligibility,
+      },
+      athleteContext: {
+        totalKm: user?.totalKm,
+        activeWeeks: user?.activeWeeks,
+      },
+    });
+
+    return result;
+  }
 
   async getOnboardingState(userId: string): Promise<OnboardingStateDto> {
     const user = await this.prisma.user.findUnique({
@@ -124,8 +192,15 @@ export class OnboardingService {
   ): Promise<OnboardingStateDto> {
     const dataToUpdate: any = {};
     if (dto.mainGoal) {
+      const parsed = await this.llmService.reformulateOnboardingGoal(
+        dto.mainGoal,
+      );
       dataToUpdate.mainGoal = dto.mainGoal;
-      dataToUpdate.activeGoalTarget = dto.mainGoal;
+      dataToUpdate.activeGoalTitle = parsed.extractedGoal.title;
+      dataToUpdate.activeGoalTarget = parsed.extractedGoal.target;
+      dataToUpdate.activeGoalRaceDate = parsed.extractedGoal.raceDate;
+      dataToUpdate.activeGoalWeeksRemaining =
+        parsed.extractedGoal.weeksRemaining;
     }
     if (dto.selectedSports) {
       dataToUpdate.selectedSports = dto.selectedSports;
@@ -148,6 +223,27 @@ export class OnboardingService {
       }
     }
 
+    if (dto.extractedRules && dto.extractedRules.length > 0) {
+      const existingRules = await this.prisma.lifeRule.findMany({
+        where: { userId },
+      });
+      const existingTitles = new Set(
+        existingRules.map((r) => r.title.toLowerCase()),
+      );
+      for (const rule of dto.extractedRules) {
+        if (!existingTitles.has(rule.title.toLowerCase())) {
+          await this.prisma.lifeRule.create({
+            data: {
+              userId,
+              title: rule.title,
+              description: rule.description,
+              icon: rule.icon || "calendar-lock",
+            },
+          });
+        }
+      }
+    }
+
     if (Object.keys(dataToUpdate).length > 0) {
       await this.prisma.user.update({
         where: { id: userId },
@@ -167,8 +263,41 @@ export class OnboardingService {
     };
 
     if (dto?.mainGoal) {
+      const parsed = await this.llmService.reformulateOnboardingGoal(
+        dto.mainGoal,
+      );
       dataToUpdate.mainGoal = dto.mainGoal;
-      dataToUpdate.activeGoalTarget = dto.mainGoal;
+      dataToUpdate.activeGoalTitle = parsed.extractedGoal.title;
+      dataToUpdate.activeGoalTarget = parsed.extractedGoal.target;
+      dataToUpdate.activeGoalRaceDate = parsed.extractedGoal.raceDate;
+      dataToUpdate.activeGoalWeeksRemaining =
+        parsed.extractedGoal.weeksRemaining;
+
+      const rulesToSave =
+        dto.extractedRules && dto.extractedRules.length > 0
+          ? dto.extractedRules
+          : parsed.extractedRules;
+
+      if (rulesToSave && rulesToSave.length > 0) {
+        const existingRules = await this.prisma.lifeRule.findMany({
+          where: { userId },
+        });
+        const existingTitles = new Set(
+          existingRules.map((r) => r.title.toLowerCase()),
+        );
+        for (const rule of rulesToSave) {
+          if (!existingTitles.has(rule.title.toLowerCase())) {
+            await this.prisma.lifeRule.create({
+              data: {
+                userId,
+                title: rule.title,
+                description: rule.description,
+                icon: rule.icon || "calendar-lock",
+              },
+            });
+          }
+        }
+      }
     }
     if (dto?.selectedSports) {
       dataToUpdate.selectedSports = dto.selectedSports;
@@ -191,6 +320,14 @@ export class OnboardingService {
     await this.prisma.user.update({
       where: { id: userId },
       data: dataToUpdate,
+    });
+
+    // Génération automatique du plan multi-semaines par le meilleur LLM (LLM_PRO_MODEL)
+    // en tenant compte du profil, des allures réelles et des LifeRules fraîchement enregistrées
+    await this.workoutsService.generateAndSaveMultiWeekPlan(userId, {
+      startWeekNumber: 42,
+      year: 2026,
+      weeksToGenerate: 4,
     });
 
     return this.getOnboardingState(userId);

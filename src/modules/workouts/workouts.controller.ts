@@ -17,6 +17,8 @@ import {
   RpeCheckInRequestDto,
   RpeCheckInResponseDto,
   AdaptWorkoutDto,
+  GenerateMultiWeekPlanRequestDto,
+  GenerateMultiWeekPlanResponseDto,
 } from "./dto/workout.dto";
 import { CurrentUserId } from "../../common/decorators/current-user.decorator";
 
@@ -24,6 +26,20 @@ import { CurrentUserId } from "../../common/decorators/current-user.decorator";
 @Controller("workouts")
 export class WorkoutsController {
   constructor(private readonly workoutsService: WorkoutsService) {}
+
+  @Post("generate-plan")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      "Génère un plan multi-semaines complet via le meilleur LLM (LLM_PRO_MODEL) en respectant tout le contexte athlète et les règles de vie, puis l'enregistre en base de données",
+  })
+  @ApiResponse({ status: 200, type: GenerateMultiWeekPlanResponseDto })
+  async generateMultiWeekPlan(
+    @CurrentUserId() userId: string,
+    @Body() dto: GenerateMultiWeekPlanRequestDto,
+  ): Promise<GenerateMultiWeekPlanResponseDto> {
+    return this.workoutsService.generateAndSaveMultiWeekPlan(userId, dto);
+  }
 
   @Get("week")
   @ApiOperation({ summary: "Récupère les 7 séances de la semaine active" })

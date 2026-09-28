@@ -1,20 +1,24 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { DataLakeService } from "../datalake/datalake.service";
+import { LlmService } from "../llm/llm.service";
 import {
   WorkoutSessionDto,
   UpdateWorkoutDto,
   RpeCheckInRequestDto,
   RpeCheckInResponseDto,
   AdaptWorkoutDto,
+  GenerateMultiWeekPlanRequestDto,
+  GenerateMultiWeekPlanResponseDto,
 } from "./dto/workout.dto";
-import { WorkoutStatus } from "@prisma/client";
+import { ChatSender, WorkoutStatus } from "@prisma/client";
 
 @Injectable()
 export class WorkoutsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly dataLakeService: DataLakeService,
+    private readonly llmService: LlmService,
   ) {}
 
   async getWeekWorkouts(
@@ -31,21 +35,23 @@ export class WorkoutsService {
       orderBy: { dateKey: "asc" },
     });
 
-    if (workouts.length === 0) {
-      // Auto-provision default workouts for the week if none exist
-      await this.provisionDefaultWeekWorkouts(
-        userId,
-        Number(weekNumber),
-        Number(year),
-      );
-      workouts = await this.prisma.workout.findMany({
-        where: {
-          userId,
-          weekNumber: Number(weekNumber),
-          year: Number(year),
-        },
-        orderBy: { dateKey: "asc" },
+    // Uniquement pour l'initialisation du compte de démo sur la semaine courante (42) si la base est totalement vide.
+    // Aucune séance n'est générée à la volée lorsqu'on navigue sur d'autres semaines dans le calendrier.
+    if (workouts.length === 0 && Number(weekNumber) === 42 && Number(year) === 2026) {
+      const totalUserWorkouts = await this.prisma.workout.count({
+        where: { userId },
       });
+      if (totalUserWorkouts === 0) {
+        await this.provisionDefaultWeekWorkouts(userId, 42, 2026);
+        workouts = await this.prisma.workout.findMany({
+          where: {
+            userId,
+            weekNumber: 42,
+            year: 2026,
+          },
+          orderBy: { dateKey: "asc" },
+        });
+      }
     }
 
     return workouts.map((w) => this.mapToDto(w));
@@ -65,16 +71,21 @@ export class WorkoutsService {
       orderBy: { dateKey: "asc" },
     });
 
-    if (workouts.length === 0) {
-      await this.provisionDefaultWeekWorkouts(userId, 42, Number(year));
-      workouts = await this.prisma.workout.findMany({
-        where: {
-          userId,
-          month: Number(month),
-          year: Number(year),
-        },
-        orderBy: { dateKey: "asc" },
+    if (workouts.length === 0 && Number(month) === 9 && Number(year) === 2026) {
+      const totalUserWorkouts = await this.prisma.workout.count({
+        where: { userId },
       });
+      if (totalUserWorkouts === 0) {
+        await this.provisionDefaultWeekWorkouts(userId, 42, 2026);
+        workouts = await this.prisma.workout.findMany({
+          where: {
+            userId,
+            month: 9,
+            year: 2026,
+          },
+          orderBy: { dateKey: "asc" },
+        });
+      }
     }
 
     const result: Record<string, WorkoutSessionDto> = {};
@@ -88,23 +99,12 @@ export class WorkoutsService {
     userId: string,
     identifier: string,
   ): Promise<WorkoutSessionDto> {
-    let workout = await this.prisma.workout.findFirst({
+    const workout = await this.prisma.workout.findFirst({
       where: {
         userId,
         OR: [{ id: identifier }, { dateKey: identifier }],
       },
     });
-
-    if (!workout) {
-      // Si la séance n'existe pas, on tente de provisionner la semaine et on réessaye
-      await this.provisionDefaultWeekWorkouts(userId, 42, 2026);
-      workout = await this.prisma.workout.findFirst({
-        where: {
-          userId,
-          OR: [{ id: identifier }, { dateKey: identifier }],
-        },
-      });
-    }
 
     if (!workout) {
       throw new NotFoundException(`Workout ${identifier} not found`);
@@ -190,6 +190,8 @@ export class WorkoutsService {
         workoutId: dto.workoutId,
         rating: dto.rating,
         feedbackLabel,
+        textComment: dto.textComment,
+        perceivedLegs: dto.perceivedLegs,
         aiPreservationMessage,
       },
     });
@@ -205,6 +207,8 @@ export class WorkoutsService {
       feedback: {
         rating: dto.rating,
         feedbackLabel,
+        textComment: dto.textComment,
+        perceivedLegs: dto.perceivedLegs,
         aiPreservationMessage,
       },
     });
@@ -212,6 +216,8 @@ export class WorkoutsService {
     return {
       rating: checkIn.rating,
       feedbackLabel: checkIn.feedbackLabel,
+      textComment: checkIn.textComment || undefined,
+      perceivedLegs: checkIn.perceivedLegs || undefined,
       submittedAt: checkIn.submittedAt.toISOString(),
       aiPreservationMessage: checkIn.aiPreservationMessage,
     };
@@ -315,7 +321,300 @@ export class WorkoutsService {
   }
 
   /**
+   * Génère un plan d'entraînement multi-semaines complet via le modèle Pro (LLM_PRO_MODEL)
+   * en prenant tout le contexte athlète (profil, allures réelles, charge Banister, séances passées, LifeRules)
+   * et l'enregistre automatiquement en base PostgreSQL.
+   */
+  async generateAndSaveMultiWeekPlan(
+    userId: string,
+    dto: GenerateMultiWeekPlanRequestDto,
+  ): Promise<GenerateMultiWeekPlanResponseDto> {
+    const startWeek = dto.startWeekNumber ?? 42;
+    const year = dto.year ?? 2026;
+    const weeksToGenerate = Math.min(Math.max(dto.weeksToGenerate ?? 4, 1), 12);
+
+    // S'assurer que l'utilisateur existe et récupérer son contexte complet
+    let user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { rules: true, syncTokens: true },
+    });
+
+    if (!user) {
+      await this.provisionDefaultWeekWorkouts(userId, 42, year);
+      user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: { rules: true, syncTokens: true },
+      });
+    }
+
+    const recentDoneWorkouts = await this.prisma.workout.findMany({
+      where: {
+        userId,
+        status: WorkoutStatus.DONE,
+      },
+      orderBy: { dateKey: "desc" },
+      take: 10,
+    });
+
+    // Calcul des allures réelles depuis les vraies séances + FC / Strava / Garmin
+    const stravaToken = user?.syncTokens?.find((t) => t.provider === "strava");
+    const garminToken = user?.syncTokens?.find((t) => t.provider === "garmin");
+    const garminMeta = (garminToken?.metadata as any) || {};
+    const stravaMeta = (stravaToken?.metadata as any) || {};
+
+    const calculatedPaces = this.llmService.calculatePacesFromAthleteHistory({
+      goalTitle: user?.activeGoalTitle || "Semi-Marathon de Valence",
+      goalTargetTime: user?.activeGoalTarget || "1h42",
+      weeklyKm: user?.totalKm ? Math.round(user.totalKm / 12) : 42,
+      recentSessions: recentDoneWorkouts.map((w) => ({
+        distanceKm:
+          w.actualDistanceKm ??
+          (parseFloat(
+            (w.distance || "0").replace(",", ".").replace(/[^0-9.]/g, ""),
+          ) ||
+            8),
+        durationMinutes: w.actualDurationSec
+          ? Math.round(w.actualDurationSec / 60)
+          : 45,
+        avgHeartRate: w.actualAvgHeartRate ?? undefined,
+        maxHeartRate: w.actualMaxHeartRate ?? undefined,
+      })),
+      garminData: garminToken
+        ? {
+            vo2Max: garminMeta.vo2Max,
+            lactateThresholdPace: garminMeta.lactateThresholdPace,
+          }
+        : undefined,
+      stravaZones: stravaMeta.heartRateZones
+        ? { heartRateZones: stravaMeta.heartRateZones }
+        : undefined,
+    });
+
+    // Construction des créneaux calendaires pour les N semaines demandées
+    // La semaine 42 commence le Lundi 12 Octobre 2026
+    const baseMonday = new Date(Date.UTC(year, 9, 12 + (startWeek - 42) * 7));
+    const dayNamesShort = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
+    const dayNamesFull = [
+      "DIMANCHE",
+      "LUNDI",
+      "MARDI",
+      "MERCREDI",
+      "JEUDI",
+      "VENDREDI",
+      "SAMEDI",
+    ];
+    const monthNamesFull = [
+      "JANVIER",
+      "FÉVRIER",
+      "MARS",
+      "AVRIL",
+      "MAI",
+      "JUIN",
+      "JUILLET",
+      "AOÛT",
+      "SEPTEMBRE",
+      "OCTOBRE",
+      "NOVEMBRE",
+      "DÉCEMBRE",
+    ];
+
+    const calendarDays: Array<{
+      dateKey: string;
+      dayName: string;
+      dayNumber: number;
+      month: number;
+      year: number;
+      weekNumber: number;
+      fullDateLabel: string;
+    }> = [];
+
+    for (let w = 0; w < weeksToGenerate; w++) {
+      const currentWeekNum = startWeek + w;
+      for (let d = 0; d < 7; d++) {
+        const dateObj = new Date(
+          baseMonday.getTime() + (w * 7 + d) * 24 * 3600 * 1000,
+        );
+        const yyyy = dateObj.getUTCFullYear();
+        const mm = dateObj.getUTCMonth(); // 0-indexed (9 = Octobre)
+        const dd = dateObj.getUTCDate();
+        const dow = dateObj.getUTCDay();
+        const dateKey = `${yyyy}-${String(mm + 1).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+
+        calendarDays.push({
+          dateKey,
+          dayName: dayNamesShort[dow],
+          dayNumber: dd,
+          month: mm,
+          year: yyyy,
+          weekNumber: currentWeekNum,
+          fullDateLabel: `${dayNamesFull[dow]} ${dd} ${monthNamesFull[mm]}`,
+        });
+      }
+    }
+
+    const llmPlan = await this.llmService.generateMultiWeekPlan({
+      athleteName: user?.firstName || "Alex",
+      goalTitle: user?.activeGoalTitle || "Semi-Marathon de Valence",
+      goalTarget: user?.activeGoalTarget || "1h42",
+      weeksRemaining: user?.activeGoalWeeksRemaining ?? 6,
+      weeksToGenerate,
+      startWeekNumber: startWeek,
+      year,
+      readinessScore: user?.readinessScore ?? 82,
+      atlFatigue: user?.atlFatigue ?? 45,
+      ctlFitness: user?.ctlFitness ?? 52,
+      tsbForm: user?.tsbForm ?? 7,
+      calculatedPaces: {
+        efPace: calculatedPaces.efPace,
+        marathonPace: calculatedPaces.marathonPace,
+        semiPace: calculatedPaces.semiPace,
+        thresholdPace: calculatedPaces.thresholdPace,
+        vmaPace: calculatedPaces.vmaPace,
+      },
+      lifeRules: (user?.rules || []).map((r) => ({
+        title: r.title,
+        description: r.description,
+        tagLabel: r.tagLabel,
+      })),
+      recentCompletedWorkouts: recentDoneWorkouts.map((w) => ({
+        dateKey: w.dateKey,
+        title: w.title,
+        actualDistanceKm: w.actualDistanceKm ?? undefined,
+        actualPace: w.actualPace ?? undefined,
+        actualAvgHeartRate: w.actualAvgHeartRate ?? undefined,
+      })),
+      calendarDays,
+    });
+
+    // Sauvegarde automatique en base PostgreSQL sans écraser les séances déjà réalisées (DONE)
+    const existingDoneWorkouts = await this.prisma.workout.findMany({
+      where: {
+        userId,
+        dateKey: { in: calendarDays.map((c) => c.dateKey) },
+        status: WorkoutStatus.DONE,
+      },
+      select: { dateKey: true },
+    });
+    const doneDateKeys = new Set(existingDoneWorkouts.map((w) => w.dateKey));
+
+    for (const item of llmPlan.workouts) {
+      if (doneDateKeys.has(item.dateKey)) {
+        continue; // On conserve précieusement les vraies séances passées
+      }
+
+      const isTodayDefault = item.dateKey === "2026-10-14";
+      const status = item.isRestDay
+        ? WorkoutStatus.REST
+        : isTodayDefault
+          ? WorkoutStatus.SELECTED
+          : WorkoutStatus.UPCOMING;
+
+      await this.prisma.workout.upsert({
+        where: {
+          userId_dateKey: {
+            userId,
+            dateKey: item.dateKey,
+          },
+        },
+        update: {
+          dayName: item.dayName,
+          dayNumber: item.dayNumber,
+          month: item.month,
+          year: item.year,
+          weekNumber: item.weekNumber,
+          fullDateLabel: item.fullDateLabel,
+          timeLabel: item.timeLabel,
+          status,
+          isRestDay: item.isRestDay,
+          category: item.category,
+          title: item.title,
+          duration: item.duration,
+          distance: item.distance,
+          targetPace: item.targetPace,
+          targetZoneLabel: item.targetZoneLabel,
+          targetZoneBpm: item.targetZoneBpm,
+          targetZoneSegments: item.targetZoneSegments as any,
+          pinPositionPercent: item.pinPositionPercent,
+          effortBlocks: item.effortBlocks as any,
+          tags: item.tags,
+          aiAdjustmentNote: item.aiAdjustmentNote,
+        },
+        create: {
+          userId,
+          dateKey: item.dateKey,
+          dayName: item.dayName,
+          dayNumber: item.dayNumber,
+          month: item.month,
+          year: item.year,
+          weekNumber: item.weekNumber,
+          fullDateLabel: item.fullDateLabel,
+          timeLabel: item.timeLabel,
+          status,
+          isRestDay: item.isRestDay,
+          category: item.category,
+          title: item.title,
+          duration: item.duration,
+          distance: item.distance,
+          targetPace: item.targetPace,
+          targetZoneLabel: item.targetZoneLabel,
+          targetZoneBpm: item.targetZoneBpm,
+          targetZoneSegments: item.targetZoneSegments as any,
+          pinPositionPercent: item.pinPositionPercent,
+          effortBlocks: item.effortBlocks as any,
+          tags: item.tags,
+          aiAdjustmentNote: item.aiAdjustmentNote,
+        },
+      });
+    }
+
+    // Si on génère un plan complet (>= 2 semaines), on ajoute un message de présentation dans le Chat Coach
+    if (weeksToGenerate >= 2 && user) {
+      await this.prisma.chatMessage.create({
+        data: {
+          userId,
+          sender: ChatSender.COACH,
+          text: `📋 Plan multi-semaines généré (Semaines ${startWeek} à ${startWeek + weeksToGenerate - 1}) :\n\n${llmPlan.planSummary}`,
+          time: new Date().toLocaleTimeString("fr-FR", {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        },
+      });
+    }
+
+    this.dataLakeService.logTrainingInteraction({
+      userId,
+      interactionType: "workout_adaptation",
+      interaction: {
+        type: "multi_week_plan_generated",
+        startWeekNumber: startWeek,
+        weeksToGenerate,
+        modelUsed: llmPlan.modelUsed,
+        planSummary: llmPlan.planSummary,
+        workoutsCount: llmPlan.workouts.length,
+      },
+    });
+
+    const savedWorkouts = await this.prisma.workout.findMany({
+      where: {
+        userId,
+        dateKey: { in: calendarDays.map((c) => c.dateKey) },
+      },
+      orderBy: { dateKey: "asc" },
+    });
+
+    return {
+      success: true,
+      planSummary: llmPlan.planSummary,
+      weeksGenerated: weeksToGenerate,
+      modelUsed: llmPlan.modelUsed,
+      workouts: savedWorkouts.map((w) => this.mapToDto(w)),
+    };
+  }
+
+  /**
    * Provisionne les séances modèles de la semaine 42 si l'utilisateur est nouveau
+   * (avec les vraies données exécutées pour les séances passées de Lundi et Mardi)
    */
   private async provisionDefaultWeekWorkouts(
     userId: string,
@@ -368,9 +667,21 @@ export class WorkoutsService {
             flexRatio: 1,
           },
         ],
-        tags: ["7,0 km", "Allure : 5:45/km", "Zone 2"],
+        tags: ["7,2 km réalisés", "Allure réelle : 5:41/km", "FC moy : 138 bpm"],
         aiAdjustmentNote:
-          "Séance réalisée avec une régularité cardiaque parfaite.",
+          "Séance réelle synchronisée via Strava : 7,2 km en 40m55s (5:41/km • 138 bpm moy). Régularité cardiaque idéale.",
+        externalActivityId: "strava-10122026",
+        sourceProvider: "strava",
+        actualDistanceKm: 7.2,
+        actualDurationSec: 2455,
+        actualPace: "5:41/km",
+        actualAvgHeartRate: 138,
+        actualMaxHeartRate: 149,
+        actualElevationGain: 42,
+        actualCalories: 465,
+        actualCadence: 174,
+        tss: 38,
+        completedAt: new Date("2026-10-12T18:41:00.000Z"),
       },
       {
         userId,
@@ -385,12 +696,12 @@ export class WorkoutsService {
         status: WorkoutStatus.DONE,
         isRestDay: false,
         category: "RENFORCEMENT & MOBILITÉ",
-        title: "Gainage & Travail de Pied",
+        title: "Footing Assimilation & Lignes Droites",
         duration: "35 min",
-        distance: "0 km",
-        targetPace: "—",
+        distance: "6,0 km",
+        targetPace: "5:35/km",
         targetZoneLabel: "Zone 1–2",
-        targetZoneBpm: "110–135 bpm",
+        targetZoneBpm: "130–145 bpm",
         targetZoneSegments: [
           { color: "#93C5FD", flex: 4 },
           { color: "#34D399", flex: 2 },
@@ -398,27 +709,39 @@ export class WorkoutsService {
         pinPositionPercent: 25,
         effortBlocks: [
           {
-            title: "Mobilité chevilles",
-            durationLabel: "10 min",
+            title: "Footing souple",
+            durationLabel: "25 min",
             type: "warmup",
-            flexRatio: 1,
-          },
-          {
-            title: "Circuit gainage",
-            durationLabel: "20 min",
-            type: "threshold",
             flexRatio: 2,
           },
           {
-            title: "Étirements",
+            title: "5 × 80m lignes droites",
+            durationLabel: "5 min",
+            type: "interval",
+            flexRatio: 1,
+          },
+          {
+            title: "Retour au calme",
             durationLabel: "5 min",
             type: "cooldown",
             flexRatio: 1,
           },
         ],
-        tags: ["35 min", "Corps complet", "Zone 1"],
+        tags: ["6,1 km réalisés", "Allure réelle : 5:32/km", "FC moy : 141 bpm"],
         aiAdjustmentNote:
-          "Indispensable pour stabiliser la posture sur le semi-marathon.",
+          "Séance réelle synchronisée via Garmin : 6,1 km en 33m45s (5:32/km • 141 bpm moy • 178 spm).",
+        externalActivityId: "garmin-10132026",
+        sourceProvider: "garmin",
+        actualDistanceKm: 6.1,
+        actualDurationSec: 2025,
+        actualPace: "5:32/km",
+        actualAvgHeartRate: 141,
+        actualMaxHeartRate: 162,
+        actualElevationGain: 28,
+        actualCalories: 390,
+        actualCadence: 178,
+        tss: 34,
+        completedAt: new Date("2026-10-13T19:04:00.000Z"),
       },
       {
         userId,
@@ -643,7 +966,24 @@ export class WorkoutsService {
             dateKey: item.dateKey,
           },
         },
-        update: {},
+        update: {
+          ...(item.status === WorkoutStatus.DONE
+            ? {
+                actualDistanceKm: item.actualDistanceKm,
+                actualDurationSec: item.actualDurationSec,
+                actualPace: item.actualPace,
+                actualAvgHeartRate: item.actualAvgHeartRate,
+                actualMaxHeartRate: item.actualMaxHeartRate,
+                actualElevationGain: item.actualElevationGain,
+                actualCalories: item.actualCalories,
+                actualCadence: item.actualCadence,
+                sourceProvider: item.sourceProvider,
+                externalActivityId: item.externalActivityId,
+                tss: item.tss,
+                completedAt: item.completedAt,
+              }
+            : {}),
+        },
         create: item,
       });
     }
@@ -681,6 +1021,19 @@ export class WorkoutsService {
       effortBlocks: (w.effortBlocks as any) || [],
       tags: w.tags || [],
       aiAdjustmentNote: w.aiAdjustmentNote || undefined,
+      externalActivityId: w.externalActivityId || undefined,
+      sourceProvider: w.sourceProvider || undefined,
+      actualDistanceKm: w.actualDistanceKm ?? undefined,
+      actualDurationSec: w.actualDurationSec ?? undefined,
+      actualPace: w.actualPace || undefined,
+      actualAvgHeartRate: w.actualAvgHeartRate ?? undefined,
+      actualMaxHeartRate: w.actualMaxHeartRate ?? undefined,
+      actualElevationGain: w.actualElevationGain ?? undefined,
+      actualCalories: w.actualCalories ?? undefined,
+      actualCadence: w.actualCadence ?? undefined,
+      actualSplitsJson: w.actualSplitsJson ?? undefined,
+      tss: w.tss ?? undefined,
+      completedAt: w.completedAt ? w.completedAt.toISOString() : undefined,
     };
   }
 }

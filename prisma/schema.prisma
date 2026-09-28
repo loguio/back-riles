@@ -41,10 +41,15 @@ model User {
   activeGoalWeeksRemaining     Int    @default(6)
   activeGoalProgressPercentage Int    @default(65)
 
-  // Overall Stats
-  activeWeeks    Int   @default(12)
-  totalKm        Float @default(328.0)
-  completedRaces Int   @default(4)
+  // Overall Stats & Physiological Load (Modèle de Banister : TSS, ATL, CTL, TSB)
+  activeWeeks    Int    @default(12)
+  totalKm        Float  @default(328.0)
+  completedRaces Int    @default(4)
+  atlFatigue     Float  @default(42.0) // Charge aiguë 7j (Fatigue)
+  ctlFitness     Float  @default(48.0) // Charge chronique 42j (Fitness)
+  tsbForm        Float  @default(6.0)  // Balance de stress (Forme = CTL - ATL)
+  sleepScore     Int    @default(82)
+  hrvStatus      String @default("balanced")
 
   // Account Preferences & State
   planType              PlanType     @default(PRO)
@@ -106,6 +111,21 @@ model Workout {
   effortBlocks       Json // Array of EffortBlock { title, durationLabel, type, flexRatio }
   tags               String[]      @default([])
   aiAdjustmentNote   String?
+  tss                Float?        // Training Stress Score de la séance
+
+  // Données complètes de la vraie séance réalisée (récupérées via Webhooks Strava / Garmin / Apple Santé)
+  externalActivityId  String?
+  sourceProvider      String?   // "strava", "garmin", "apple_health"
+  actualDistanceKm    Float?    // ex: 14.25
+  actualDurationSec   Int?      // ex: 4180
+  actualPace          String?   // ex: "4:53/km"
+  actualAvgHeartRate  Int?      // ex: 161
+  actualMaxHeartRate  Int?      // ex: 179
+  actualElevationGain Float?    // ex: 115.0
+  actualCalories      Int?      // ex: 820
+  actualCadence       Int?      // ex: 178
+  actualSplitsJson    Json?     // Détail km par km (splits_metric / laps)
+  completedAt         DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -127,6 +147,8 @@ model RpeCheckIn {
   workout               Workout? @relation(fields: [workoutId], references: [id], onDelete: SetNull)
   rating                Int // 1 to 10
   feedbackLabel         String // "Très facile", "Modéré", "Difficile", "À fond"
+  textComment           String? // Commentaire libre post-séance (Data Lake)
+  perceivedLegs         String? // Ressenti musculaire (ex: "légères", "lourdes", "mollets raides")
   aiPreservationMessage String
   submittedAt           DateTime @default(now())
 

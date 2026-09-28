@@ -9,6 +9,7 @@ import { WorkoutsModule } from "./modules/workouts/workouts.module";
 import { CoachModule } from "./modules/coach/coach.module";
 import { WebhooksModule } from "./modules/webhooks/webhooks.module";
 import { DataLakeModule } from "./modules/datalake/datalake.module";
+import { LlmModule } from "./modules/llm/llm.module";
 import { SupabaseAuthGuard } from "./modules/auth/guards/supabase-auth.guard";
 
 @Module({
@@ -19,6 +20,7 @@ import { SupabaseAuthGuard } from "./modules/auth/guards/supabase-auth.guard";
     }),
     PrismaModule,
     DataLakeModule,
+    LlmModule,
     AuthModule,
     UsersModule,
     OnboardingModule,

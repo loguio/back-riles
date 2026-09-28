@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { DataLakeService } from "../datalake/datalake.service";
+import { LlmService } from "../llm/llm.service";
 import {
   SendChatMessageDto,
   ChatResponseDto,
@@ -8,12 +9,14 @@ import {
   QuickPromptDto,
   SuggestedActionDto,
 } from "./dto/coach.dto";
+import { WorkoutStatus } from "@prisma/client";
 
 @Injectable()
 export class CoachService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly dataLakeService: DataLakeService,
+    private readonly llmService: LlmService,
   ) {}
 
   async getHistory(userId: string): Promise<ChatMessageDto[]> {
@@ -53,7 +56,7 @@ export class CoachService {
       .toString()
       .padStart(2, "0")}`;
 
-    // 1. Save user message
+    // 1. Sauvegarde du message utilisateur
     const userMsgRecord = await this.prisma.chatMessage.create({
       data: {
         userId,
@@ -63,87 +66,231 @@ export class CoachService {
       },
     });
 
-    // 2. Intelligent Contextual Coach Reply Analysis
-    const lowerText = dto.text.toLowerCase();
-    let replyText =
-      "Bien reçu ! J'ai réajusté ta charge d'entraînement pour garantir ta progression sans fatigue excessive.";
-    let suggestedAction: SuggestedActionDto | undefined = undefined;
+    // 2. Context Builder (RAG ciblé) : récupération du profil, règles de vie, séances récentes (allure + FC), séance active et dernier RPE
+    const [user, activeWorkout, recentWorkouts, currentWeekWorkouts, lastRpe] =
+      await Promise.all([
+        this.prisma.user.findUnique({
+          where: { id: userId },
+          include: {
+            rules: { orderBy: { createdAt: "asc" } },
+            syncTokens: { where: { isConnected: true } },
+          },
+        }),
+        this.prisma.workout.findFirst({
+          where: {
+            userId,
+            status: WorkoutStatus.SELECTED,
+          },
+        }),
+        this.prisma.workout.findMany({
+          where: {
+            userId,
+            isRestDay: false,
+            status: { in: [WorkoutStatus.DONE, WorkoutStatus.SELECTED] },
+          },
+          orderBy: { dateKey: "desc" },
+          take: 10,
+        }),
+        this.prisma.workout.findMany({
+          where: {
+            userId,
+            weekNumber: 42,
+          },
+          orderBy: { dateKey: "asc" },
+        }),
+        this.prisma.rpeCheckIn.findFirst({
+          where: { userId },
+          orderBy: { submittedAt: "desc" },
+        }),
+      ]);
 
-    if (lowerText.includes("fatigué") || lowerText.includes("fatigue")) {
-      replyText =
-        "C'est noté Marius. Quand le corps est fatigué, insister sur du seuil augmente le risque de blessure et le temps de récupération. Je te propose d'alléger la séance de ce soir en un footing doux de 35 min en Zone 2.";
-      suggestedAction = {
-        type: "reduce_intensity",
-        label: "Appliquer : Alléger la séance à 35 min",
-        applied: false,
-        details: "lighten",
-      };
-    } else if (
-      lowerText.includes("décaler") ||
-      lowerText.includes("imprévu") ||
-      lowerText.includes("demain")
+    const recentSessions =
+      this.llmService.extractSessionMetricsFromWorkouts(recentWorkouts);
+    const longestRecentRunKm =
+      recentSessions && recentSessions.length > 0
+        ? Math.max(...recentSessions.map((s) => s.distanceKm || 0))
+        : undefined;
+    const recentWeeklyKm =
+      user?.totalKm && user?.activeWeeks
+        ? user.totalKm / Math.max(1, user.activeWeeks)
+        : undefined;
+    const hasSyncedHistory =
+      Boolean(user?.syncTokens && user.syncTokens.length > 0) ||
+      recentWorkouts.some((w) => w.status === WorkoutStatus.DONE);
+
+    const athleteContext = {
+      userName: user?.name || "Marius",
+      readinessScore: dto.context?.readinessScore ?? user?.readinessScore ?? 88,
+      activeGoalTitle: user?.activeGoalTitle || "Semi-marathon de Paris",
+      activeGoalTarget: user?.activeGoalTarget || "Passer sous les 2h",
+      activeGoalRaceDate: user?.activeGoalRaceDate || "17 mars 2025",
+      activeGoalWeeksRemaining: user?.activeGoalWeeksRemaining ?? 6,
+      totalKm: user?.totalKm ?? 328,
+      activeWeeks: user?.activeWeeks ?? 12,
+      atlFatigue: user?.atlFatigue ?? 42,
+      ctlFitness: user?.ctlFitness ?? 48,
+      tsbForm: user?.tsbForm ?? 6,
+      selectedSports: user?.selectedSports || ["running"],
+      rules:
+        user?.rules.map((r) => ({
+          id: r.id,
+          title: r.title,
+          description: r.description,
+          icon: r.icon,
+        })) || [],
+      trainingContext: {
+        hasSyncedHistory,
+        recentWeeklyKm,
+        longestRecentRunKm,
+        activeWeeks: user?.activeWeeks ?? 12,
+        recentSessions,
+      },
+      activeWorkout: activeWorkout
+        ? {
+            id: activeWorkout.id,
+            dateKey: activeWorkout.dateKey,
+            title: activeWorkout.title,
+            category: activeWorkout.category,
+            duration: activeWorkout.duration,
+            distance: activeWorkout.distance,
+            targetPace: activeWorkout.targetPace,
+            targetZoneLabel: activeWorkout.targetZoneLabel,
+          }
+        : dto.context?.activeSessionTitle
+          ? { title: dto.context.activeSessionTitle }
+          : undefined,
+      currentWeekWorkouts: currentWeekWorkouts.map((w) => ({
+        id: w.id,
+        dateKey: w.dateKey,
+        dayName: w.dayName,
+        status: w.status,
+        isRestDay: w.isRestDay,
+        title: w.title,
+        duration: w.duration,
+        distance: w.distance,
+        targetPace: w.targetPace,
+        actualDistanceKm: w.actualDistanceKm,
+        actualPace: w.actualPace,
+        actualAvgHeartRate: w.actualAvgHeartRate,
+      })),
+      lastRpe: lastRpe
+        ? {
+            rating: lastRpe.rating,
+            feedbackLabel: lastRpe.feedbackLabel,
+          }
+        : dto.context?.lastRpe
+          ? { rating: dto.context.lastRpe }
+          : undefined,
+    };
+
+    // 3. Génération de la réponse via LlmService (Garde-fous + LLM Multi-Provider / Fallback Hybride)
+    const llmReply = await this.llmService.generateCoachReply({
+      userPrompt: dto.text,
+      athleteContext,
+    });
+
+    // Si l'utilisateur a exprimé une nouvelle règle de vie dans son message, l'IA la reformule et l'enregistre automatiquement
+    let autoAppliedRule = false;
+    if (
+      llmReply.suggestedAction?.type === "add_life_rule" &&
+      llmReply.suggestedAction.ruleData
     ) {
-      replyText =
-        "Pas de problème, l'entraînement s'adapte à ta vie et non l'inverse. Je bascule la séance qualitative sur demain et je place ton repos aujourd'hui.";
-      suggestedAction = {
-        type: "reschedule",
-        label: "Appliquer : Décaler le seuil à demain",
-        applied: false,
-        details: "postpone",
-      };
-    } else if (
-      lowerText.includes("cool") ||
-      lowerText.includes("30 min") ||
-      lowerText.includes("souple")
-    ) {
-      replyText =
-        "Excellente initiative. 30 minutes de footing régénérant en Zone 1-2 vont stimuler la récupération sans générer de fatigue résiduelle.";
-      suggestedAction = {
-        type: "adjust_workout",
-        label: "Appliquer : Remplacer par 30 min cool",
-        applied: false,
-        details: "easy_run",
-      };
-    } else if (
-      lowerText.includes("mollet") ||
-      lowerText.includes("douleur") ||
-      lowerText.includes("gêne") ||
-      lowerText.includes("blessure")
-    ) {
-      replyText =
-        "Prudence avant tout ! Une gêne au mollet peut vite évoluer en contracture. Je te conseille 20 min de mobilité sans impact et du glaçage ce soir. On suspend la course pour les prochaines 24h.";
-      suggestedAction = {
-        type: "reduce_intensity",
-        label: "Appliquer : Repos mollet & Mobilité",
-        applied: false,
-        details: "injury_care",
-      };
-    } else {
-      replyText =
-        "J'ai bien pris en compte ta remarque. Ton plan est calibré pour ton objectif Semi-marathon sous les 2h. N'hésite pas à me signaler tout changement de sensation !";
+      const ruleData = llmReply.suggestedAction.ruleData;
+      const alreadyExists = (user?.rules || []).some(
+        (r) =>
+          r.title.toLowerCase() === ruleData.title.toLowerCase() &&
+          r.description.toLowerCase() === ruleData.description.toLowerCase(),
+      );
+      if (!alreadyExists && user) {
+        await this.prisma.lifeRule.create({
+          data: {
+            userId,
+            title: ruleData.title,
+            description: ruleData.description,
+            icon: ruleData.icon || "calendar-lock",
+          },
+        });
+      }
+      autoAppliedRule = true;
     }
 
-    // 3. Save Coach Message
+    // Si le Coach IA a recalculé la semaine complète suite au message de l'utilisateur, on applique automatiquement les changements en BDD
+    let autoRecalculatedWeek = false;
+    if (
+      llmReply.recalculatedWeekWorkouts &&
+      llmReply.recalculatedWeekWorkouts.length > 0
+    ) {
+      for (const item of llmReply.recalculatedWeekWorkouts) {
+        if (!item.dateKey) continue;
+        await this.prisma.workout.updateMany({
+          where: { userId, dateKey: item.dateKey },
+          data: {
+            isRestDay: item.isRestDay ?? false,
+            status: item.isRestDay ? WorkoutStatus.REST : undefined,
+            category: item.category || undefined,
+            title: item.title,
+            duration: item.duration,
+            distance: item.distance,
+            targetPace: item.targetPace || undefined,
+            targetZoneLabel: item.targetZoneLabel || undefined,
+            targetZoneBpm: item.targetZoneBpm || undefined,
+            aiAdjustmentNote: item.aiAdjustmentNote || undefined,
+            tags: item.tags || undefined,
+          },
+        });
+      }
+      autoRecalculatedWeek = true;
+    }
+
+    const suggestedAction: SuggestedActionDto | undefined =
+      llmReply.suggestedAction
+        ? {
+            type: llmReply.suggestedAction.type as any,
+            label: autoAppliedRule
+              ? `Règle reformulée & enregistrée : « ${llmReply.suggestedAction.ruleData?.title} »`
+              : llmReply.suggestedAction.label,
+            applied:
+              autoAppliedRule ||
+              autoRecalculatedWeek ||
+              Boolean(llmReply.suggestedAction.applied),
+            workoutId:
+              llmReply.suggestedAction.workoutId || activeWorkout?.id,
+            details: llmReply.suggestedAction.details,
+            ruleData: llmReply.suggestedAction.ruleData,
+          }
+        : undefined;
+
+    // 4. Sauvegarde de la réponse du Coach
     const coachMsgRecord = await this.prisma.chatMessage.create({
       data: {
         userId,
         sender: "coach",
-        text: replyText,
+        text: llmReply.replyText,
         timestamp: timeStr,
         suggestedAction: suggestedAction ? (suggestedAction as any) : undefined,
       },
     });
 
-    // 4. Enregistrement asynchrone non-bloquant dans le Data Lake
+    // 5. Enregistrement asynchrone non-bloquant dans le Data Lake (avec athleteContext complet)
     this.dataLakeService.logTrainingInteraction({
       userId,
       interactionType: "coach_chat",
       interaction: {
         type: "chat",
         userPrompt: dto.text,
-        aiResponse: replyText,
+        reformulatedIntent: llmReply.reformulatedIntent,
+        aiResponse: llmReply.replyText,
+        safetyStatus: llmReply.safetyStatus,
         suggestedAction,
+        modelUsed: llmReply.modelUsed,
       },
+      athleteContext,
+      feedback: lastRpe
+        ? {
+            rating: lastRpe.rating,
+            feedbackLabel: lastRpe.feedbackLabel,
+          }
+        : undefined,
     });
 
     return {

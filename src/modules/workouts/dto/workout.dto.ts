@@ -111,6 +111,46 @@ export class WorkoutSessionDto {
     example: "L'IA a ajusté le seuil pour préserver tes mollets aujourd'hui.",
   })
   aiAdjustmentNote?: string;
+
+  // Données complètes de la vraie séance réalisée (issues des webhooks Strava / Garmin / Apple Santé)
+  @ApiPropertyOptional({ example: "1234567890" })
+  externalActivityId?: string;
+
+  @ApiPropertyOptional({ example: "strava" })
+  sourceProvider?: string;
+
+  @ApiPropertyOptional({ example: 14.2 })
+  actualDistanceKm?: number;
+
+  @ApiPropertyOptional({ example: 4180 })
+  actualDurationSec?: number;
+
+  @ApiPropertyOptional({ example: "4:54/km" })
+  actualPace?: string;
+
+  @ApiPropertyOptional({ example: 161 })
+  actualAvgHeartRate?: number;
+
+  @ApiPropertyOptional({ example: 179 })
+  actualMaxHeartRate?: number;
+
+  @ApiPropertyOptional({ example: 115 })
+  actualElevationGain?: number;
+
+  @ApiPropertyOptional({ example: 820 })
+  actualCalories?: number;
+
+  @ApiPropertyOptional({ example: 178 })
+  actualCadence?: number;
+
+  @ApiPropertyOptional()
+  actualSplitsJson?: any;
+
+  @ApiPropertyOptional({ example: 68 })
+  tss?: number;
+
+  @ApiPropertyOptional({ example: "2026-10-14T19:45:00.000Z" })
+  completedAt?: string;
 }
 
 export class UpdateWorkoutDto {
@@ -174,6 +214,16 @@ export class RpeCheckInRequestDto {
   @IsOptional()
   @IsString()
   workoutId?: string;
+
+  @ApiPropertyOptional({ example: "Sensations fluides mais mollets un peu raides sur la fin" })
+  @IsOptional()
+  @IsString()
+  textComment?: string;
+
+  @ApiPropertyOptional({ example: "légères" })
+  @IsOptional()
+  @IsString()
+  perceivedLegs?: string;
 }
 
 export class RpeCheckInResponseDto {
@@ -182,6 +232,12 @@ export class RpeCheckInResponseDto {
 
   @ApiProperty({ example: "Modéré" })
   feedbackLabel: string;
+
+  @ApiPropertyOptional({ example: "Sensations fluides" })
+  textComment?: string;
+
+  @ApiPropertyOptional({ example: "légères" })
+  perceivedLegs?: string;
 
   @ApiPropertyOptional({ example: "2026-10-14T18:35:00.000Z" })
   submittedAt?: string;
@@ -199,4 +255,43 @@ export class AdaptWorkoutDto {
   })
   @IsIn(["lighten", "postpone", "easy_run", "injury_care"])
   adaptationType: "lighten" | "postpone" | "easy_run" | "injury_care";
+}
+
+export class GenerateMultiWeekPlanRequestDto {
+  @ApiPropertyOptional({ example: 42 })
+  @IsOptional()
+  @IsNumber()
+  startWeekNumber?: number;
+
+  @ApiPropertyOptional({ example: 2026 })
+  @IsOptional()
+  @IsNumber()
+  year?: number;
+
+  @ApiPropertyOptional({ example: 4, minimum: 1, maximum: 12 })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(12)
+  weeksToGenerate?: number;
+}
+
+export class GenerateMultiWeekPlanResponseDto {
+  @ApiProperty({ example: true })
+  success: boolean;
+
+  @ApiProperty({
+    example:
+      "Ton plan de 4 semaines (Semaines 42 à 45) a été généré sur mesure par l'IA en respectant tes règles de vie.",
+  })
+  planSummary: string;
+
+  @ApiProperty({ example: 4 })
+  weeksGenerated: number;
+
+  @ApiProperty({ example: "google/gemini-2.5-pro" })
+  modelUsed: string;
+
+  @ApiProperty({ type: [WorkoutSessionDto] })
+  workouts: WorkoutSessionDto[];
 }

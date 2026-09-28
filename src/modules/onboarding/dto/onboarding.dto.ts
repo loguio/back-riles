@@ -99,6 +99,34 @@ export class SaveOnboardingStepDto {
   @IsOptional()
   @IsBoolean()
   isCompleted?: boolean;
+
+  @ApiPropertyOptional({
+    example: [
+      {
+        title: "Jours sanctuarisés",
+        description: "Aucune séance programmée le jeudi.",
+        icon: "calendar-lock",
+      },
+    ],
+  })
+  @IsOptional()
+  @IsArray()
+  extractedRules?: Array<{
+    title: string;
+    description: string;
+    icon: string;
+  }>;
 }
 
 export class CompleteOnboardingDto extends SaveOnboardingStepDto {}
+
+export class ReformulateOnboardingGoalDto {
+  @ApiProperty({
+    example:
+      "Je veux préparer le semi de Paris en moins de 1h45 sans me blesser aux mollets, pas dispo le jeudi",
+  })
+  @IsNotEmpty()
+  @IsString()
+  rawGoal: string;
+}
+

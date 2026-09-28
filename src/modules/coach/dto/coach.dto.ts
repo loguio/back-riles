@@ -29,10 +29,24 @@ export class CoachContextDto {
 export class SuggestedActionDto {
   @ApiProperty({
     example: "reduce_intensity",
-    enum: ["adjust_workout", "reschedule", "reduce_intensity"],
+    enum: [
+      "adjust_workout",
+      "reschedule",
+      "reduce_intensity",
+      "add_life_rule",
+    ],
   })
-  @IsIn(["adjust_workout", "reschedule", "reduce_intensity"])
-  type: "adjust_workout" | "reschedule" | "reduce_intensity";
+  @IsIn([
+    "adjust_workout",
+    "reschedule",
+    "reduce_intensity",
+    "add_life_rule",
+  ])
+  type:
+    | "adjust_workout"
+    | "reschedule"
+    | "reduce_intensity"
+    | "add_life_rule";
 
   @ApiProperty({ example: "Appliquer : Alléger la séance à 35 min" })
   label: string;
@@ -45,6 +59,19 @@ export class SuggestedActionDto {
 
   @ApiPropertyOptional({ example: "lighten" })
   details?: string;
+
+  @ApiPropertyOptional({
+    example: {
+      title: "Jours sanctuarisés",
+      description: "Aucune séance programmée le jeudi.",
+      icon: "calendar-lock",
+    },
+  })
+  ruleData?: {
+    title: string;
+    description: string;
+    icon: string;
+  };
 }
 
 export class ChatMessageDto {
