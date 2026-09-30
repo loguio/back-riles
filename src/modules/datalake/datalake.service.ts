@@ -2,6 +2,8 @@ import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import * as crypto from "crypto";
+import * as fs from "fs";
+import * as path from "path";
 import {
   TrainingInteractionLogInput,
   DatalakeRecord,
@@ -12,15 +14,49 @@ export class DataLakeService implements OnModuleInit {
   private readonly logger = new Logger(DataLakeService.name);
   private supabaseClient: SupabaseClient | null = null;
   private readonly bucketName: string;
+  private readonly localBaseDir: string;
+  private readonly localConsolidatedFile: string;
+  private readonly recentRecordsBuffer: DatalakeRecord[] = [];
 
   constructor(private readonly configService: ConfigService) {
     this.bucketName =
       this.configService.get<string>("DATALAKE_BUCKET_NAME") ||
       "training-datalake";
+    this.localBaseDir = path.resolve(process.cwd(), "storage", "datalake");
+    this.localConsolidatedFile = path.join(
+      this.localBaseDir,
+      "interactions.jsonl",
+    );
   }
 
   onModuleInit() {
+    this.initializeLocalDirectory();
     this.initializeSupabase();
+  }
+
+  private initializeLocalDirectory() {
+    try {
+      fs.mkdirSync(this.localBaseDir, { recursive: true });
+      if (fs.existsSync(this.localConsolidatedFile)) {
+        const raw = fs.readFileSync(this.localConsolidatedFile, "utf-8");
+        const lines = raw
+          .split("\n")
+          .map((l) => l.trim())
+          .filter(Boolean)
+          .slice(-200);
+        for (const line of lines) {
+          try {
+            this.recentRecordsBuffer.push(JSON.parse(line));
+          } catch {
+            // ignore malformed line
+          }
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(
+        `Initialisation du dossier local DataLake ignorée: ${err?.message}`,
+      );
+    }
   }
 
   /**
@@ -35,9 +71,14 @@ export class DataLakeService implements OnModuleInit {
       this.configService.get<string>("SUPABASE_SERVICE_ROLE_KEY") ||
       this.configService.get<string>("SUPABASE_SECRET_KEY");
 
-    if (!supabaseUrl || !serviceRoleKey) {
-      this.logger.warn(
-        "⚠️ Variables SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY manquantes. Le DataLakeService fonctionnera en mode dégradé (logs locaux uniquement).",
+    if (
+      !supabaseUrl ||
+      !serviceRoleKey ||
+      serviceRoleKey === "your_supabase_service_role_key" ||
+      serviceRoleKey === "your_supabase_secret_key"
+    ) {
+      this.logger.log(
+        `✅ DataLakeService actif en stockage JSONL local partitionné (${this.localBaseDir}). Ajoutez SUPABASE_SERVICE_ROLE_KEY dans .env pour répliquer vers le bucket Supabase "${this.bucketName}".`,
       );
       return;
     }
@@ -50,7 +91,7 @@ export class DataLakeService implements OnModuleInit {
         },
       });
       this.logger.log(
-        `✅ DataLakeService initialisé avec succès (Bucket cible : "${this.bucketName}").`,
+        `✅ DataLakeService initialisé avec double écriture : Stockage local + Supabase Storage (Bucket : "${this.bucketName}").`,
       );
     } catch (err: any) {
       this.logger.error(
@@ -75,7 +116,7 @@ export class DataLakeService implements OnModuleInit {
   }
 
   /**
-   * Génère le chemin partitionné par date pour Supabase Storage :
+   * Génère le chemin partitionné par date pour Supabase Storage et le disque local :
    * raw/year=YYYY/MM/DD/interaction_[timestamp]_[random].jsonl
    */
   public generatePartitionedPath(date: Date = new Date()): string {
@@ -90,9 +131,8 @@ export class DataLakeService implements OnModuleInit {
   }
 
   /**
-   * Enregistre une interaction d'entraînement, le contexte de l'athlète et les feedbacks dans le Data Lake.
-   * Cette méthode est totalement non bloquante et encapsulée dans un try/catch pour ne jamais impacter
-   * la réponse de l'API appelante.
+   * Enregistre automatiquement une interaction d'entraînement, le contexte de l'athlète et les feedbacks dans le Data Lake.
+   * Totalement non bloquante et encapsulée dans un try/catch pour ne jamais impacter l'API appelante.
    */
   async logTrainingInteraction(
     data: TrainingInteractionLogInput,
@@ -104,7 +144,7 @@ export class DataLakeService implements OnModuleInit {
       const month = now.getUTCMonth() + 1;
       const day = now.getUTCDate();
 
-      // 1. Anonymisation systématique de l'ID utilisateur
+      // 1. Anonymisation systématique de l'ID utilisateur (SHA-256)
       const anonymousUserId = this.anonymizeUserId(data.userId);
 
       // 2. Structuration de l'objet pour le Data Lake
@@ -126,9 +166,16 @@ export class DataLakeService implements OnModuleInit {
           loggedAt: new Date().toISOString(),
           environment:
             this.configService.get<string>("NODE_ENV") || "development",
+          storageMode: this.supabaseClient ? "supabase+local" : "local_jsonl",
           ...(data.metadata || {}),
         },
       };
+
+      // Conservation en mémoire (buffer circulaire de 200 entrées)
+      this.recentRecordsBuffer.push(record);
+      if (this.recentRecordsBuffer.length > 200) {
+        this.recentRecordsBuffer.shift();
+      }
 
       // 3. Format JSON Lines (une seule ligne terminée par un saut de ligne)
       const jsonLineContent = JSON.stringify(record) + "\n";
@@ -136,40 +183,83 @@ export class DataLakeService implements OnModuleInit {
       // 4. Génération de la clé de partitionnement temporel
       const storagePath = this.generatePartitionedPath(now);
 
-      // Si le client Supabase n'est pas configuré, on trace et on sort sans erreur
-      if (!this.supabaseClient) {
-        this.logger.debug(
-          `[DataLake Mock/Offline] Interaction simulée pour anon_user=${anonymousUserId} vers ${storagePath}`,
+      // 5. Persistance systématique sur disque local (partitionnée + fichier consolidé)
+      try {
+        const fullLocalPartitionedPath = path.join(
+          this.localBaseDir,
+          ...storagePath.split("/"),
         );
-        return true;
+        fs.mkdirSync(path.dirname(fullLocalPartitionedPath), {
+          recursive: true,
+        });
+        fs.writeFileSync(fullLocalPartitionedPath, jsonLineContent, "utf-8");
+        fs.appendFileSync(this.localConsolidatedFile, jsonLineContent, "utf-8");
+      } catch (fsErr: any) {
+        this.logger.warn(
+          `Écriture disque local DataLake ignorée: ${fsErr?.message}`,
+        );
       }
 
-      // 5. Sauvegarde non bloquante dans Supabase Storage
-      const { error } = await this.supabaseClient.storage
-        .from(this.bucketName)
-        .upload(storagePath, Buffer.from(jsonLineContent, "utf-8"), {
-          contentType: "application/x-ndjson",
-          upsert: false,
-        });
+      // 6. Si Supabase Storage est configuré avec SUPABASE_SERVICE_ROLE_KEY, réplication cloud
+      if (this.supabaseClient) {
+        const { error } = await this.supabaseClient.storage
+          .from(this.bucketName)
+          .upload(storagePath, Buffer.from(jsonLineContent, "utf-8"), {
+            contentType: "application/x-ndjson",
+            upsert: false,
+          });
 
-      if (error) {
-        this.logger.warn(
-          `⚠️ Impossible d'écrire l'interaction dans le Data Lake Storage (${this.bucketName}/${storagePath}) : ${error.message}`,
-        );
-        return false;
+        if (error) {
+          this.logger.warn(
+            `⚠️ Réplication cloud Data Lake Storage (${this.bucketName}/${storagePath}) en attente : ${error.message} (Conservé localement).`,
+          );
+          return true;
+        }
       }
 
       this.logger.debug(
-        `📥 Interaction archivée avec succès dans le Data Lake : ${this.bucketName}/${storagePath} (anon_user: ${anonymousUserId})`,
+        `📥 Interaction archivée dans le Data Lake [${record.interactionType}] : ${storagePath} (anon_user: ${anonymousUserId})`,
       );
       return true;
     } catch (error: any) {
-      // Gestion d'erreur étanche pour ne jamais faire crasher l'API principale
       this.logger.error(
         `❌ Erreur inattendue lors de l'archivage Data Lake : ${error?.message}`,
         error?.stack,
       );
       return false;
     }
+  }
+
+  /**
+   * Retourne les derniers enregistrements du Data Lake pour audit/inspection
+   */
+  getRecentLogs(limit = 50, interactionType?: string): DatalakeRecord[] {
+    let list = [...this.recentRecordsBuffer].reverse();
+    if (interactionType) {
+      list = list.filter((r) => r.interactionType === interactionType);
+    }
+    return list.slice(0, Math.max(1, Math.min(limit, 200)));
+  }
+
+  /**
+   * Retourne les statistiques temps réel du Data Lake
+   */
+  getStats() {
+    const byType: Record<string, number> = {};
+    for (const r of this.recentRecordsBuffer) {
+      byType[r.interactionType] = (byType[r.interactionType] || 0) + 1;
+    }
+    return {
+      totalBufferedRecords: this.recentRecordsBuffer.length,
+      storageMode: this.supabaseClient ? "supabase_cloud_and_local" : "local_jsonl_partitioned",
+      bucketName: this.bucketName,
+      localDirectory: this.localBaseDir,
+      countsByInteractionType: byType,
+      lastRecordAt:
+        this.recentRecordsBuffer.length > 0
+          ? this.recentRecordsBuffer[this.recentRecordsBuffer.length - 1]
+              .timestamp
+          : null,
+    };
   }
 }

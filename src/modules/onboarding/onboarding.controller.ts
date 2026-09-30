@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Body,
+  Query,
   HttpCode,
   HttpStatus,
 } from "@nestjs/common";
@@ -14,8 +15,12 @@ import {
   SaveOnboardingStepDto,
   CompleteOnboardingDto,
   ReformulateOnboardingGoalDto,
+  SyncStravaSixMonthsDto,
 } from "./dto/onboarding.dto";
-import { ReformulateGoalResultDto } from "../llm/dto/llm.dto";
+import {
+  ReformulateGoalResultDto,
+  StravaSixMonthsSummaryDto,
+} from "../llm/dto/llm.dto";
 import { CurrentUserId } from "../../common/decorators/current-user.decorator";
 
 @ApiTags("Onboarding")
@@ -39,6 +44,28 @@ export class OnboardingController {
     @CurrentUserId() userId: string,
   ): Promise<ConnectedAppDto[]> {
     return this.onboardingService.getAppsCatalog(userId);
+  }
+
+  @Get("oauth/strava/url")
+  @ApiOperation({
+    summary:
+      "Génère l’URL d’autorisation OAuth2 Strava (Scope : 6 derniers mois d’activités & profil cardio)",
+  })
+  getStravaOAuthUrl(@Query("redirectUri") redirectUri?: string) {
+    return this.onboardingService.getStravaOAuthUrl(redirectUri);
+  }
+
+  @Post("strava/sync-six-months")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      "Connecte Strava (OAuth2 ou import direct), récupère et sauvegarde les 6 derniers mois de séances Strava dans l’application et le contexte IA",
+  })
+  async syncStravaSixMonths(
+    @CurrentUserId() userId: string,
+    @Body() dto: SyncStravaSixMonthsDto,
+  ): Promise<StravaSixMonthsSummaryDto> {
+    return this.onboardingService.syncStravaSixMonths(userId, dto);
   }
 
   @Post("reformulate-goal")
@@ -70,7 +97,10 @@ export class OnboardingController {
 
   @Post("complete")
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: "Finalise l’onboarding et initialise le profil" })
+  @ApiOperation({
+    summary:
+      "Finalise l’onboarding, synchronise les 6 mois de données Strava et génère le plan d’entraînement multi-semaines sur-mesure",
+  })
   @ApiResponse({ status: 200, type: OnboardingStateDto })
   async complete(
     @CurrentUserId() userId: string,

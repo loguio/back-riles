@@ -49,6 +49,44 @@ export class WebhooksController {
     );
   }
 
+  @Get("strava/oauth/url")
+  @ApiOperation({
+    summary:
+      "Génère l'URL d'autorisation OAuth2 Strava (scope activity:read_all,profile:read_all)",
+  })
+  @ApiQuery({ name: "redirectUri", required: false })
+  getStravaOAuthUrl(@Query("redirectUri") redirectUri?: string) {
+    return this.webhooksService.getStravaOAuthAuthorizeUrl(redirectUri);
+  }
+
+  @Get("strava/oauth/callback")
+  @ApiOperation({
+    summary:
+      "Callback OAuth2 Strava direct : échange le code contre access_token/refresh_token et synchronise les 6 derniers mois d'activités",
+  })
+  @ApiQuery({ name: "code", required: false })
+  @ApiQuery({ name: "state", required: false, description: "userId optionnel" })
+  async handleStravaOAuthCallback(
+    @Query("code") code?: string,
+    @Query("state") state?: string,
+  ) {
+    const userId = state || "demo-user-marius-2026";
+    const summary = await this.webhooksService.syncStravaSixMonthsHistory(
+      userId,
+      {
+        code,
+        forceRefresh: true,
+      },
+    );
+    return {
+      status: "ok",
+      provider: "strava",
+      userId,
+      oauthCodeExchanged: Boolean(code),
+      sixMonthsSummary: summary,
+    };
+  }
+
   @Post("strava")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({

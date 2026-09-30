@@ -126,11 +126,15 @@ export class SupabaseAuthGuard implements CanActivate {
       return true;
     }
 
-    // 4. Cas sans token Bearer
+    // 4. Cas sans token Bearer (Mode Invité / "Continuer sans compte" / Tests API MVP en dev)
     if (!token) {
-      if (isDev && devUserId && typeof devUserId === "string") {
+      if (isDev) {
+        const fallbackUserId =
+          typeof devUserId === "string" && devUserId.length > 0
+            ? devUserId
+            : "user-01";
         const user = await this.prisma.user.findUnique({
-          where: { id: devUserId },
+          where: { id: fallbackUserId },
         });
         if (user) {
           request.user = user;

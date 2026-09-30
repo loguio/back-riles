@@ -143,6 +143,12 @@ export class UsersService {
   }
 
   private mapUserToProfileDto(user: any): UserProfileDto {
+    const stravaToken = user.syncTokens?.find(
+      (t: any) => t.provider === "strava",
+    );
+    const stravaSixMonthsSummary = (stravaToken?.metadata as any)
+      ?.sixMonthsSummary;
+
     return {
       id: user.id,
       name: user.name,
@@ -171,6 +177,10 @@ export class UsersService {
         ? user.syncTokens.map((t: any) => t.provider)
         : ["garmin", "strava"],
       planType: user.planType === PlanType.PRO ? "pro" : "basic",
+      atlFatigue: user.atlFatigue,
+      ctlFitness: user.ctlFitness,
+      tsbForm: user.tsbForm,
+      stravaSixMonthsSummary: stravaSixMonthsSummary || undefined,
     };
   }
 }

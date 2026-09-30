@@ -39,3 +39,4 @@ Thumbs.db
 *.db
 *.db-journal
 
+storage/datalake/raw

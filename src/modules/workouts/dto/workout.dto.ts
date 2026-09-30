@@ -57,6 +57,15 @@ export class WorkoutSessionDto {
   @ApiProperty({ example: 14 })
   dayNumber: number;
 
+  @ApiPropertyOptional({ example: 9 })
+  month?: number;
+
+  @ApiPropertyOptional({ example: 2026 })
+  year?: number;
+
+  @ApiPropertyOptional({ example: 42 })
+  weekNumber?: number;
+
   @ApiProperty({ example: "MERCREDI 14 OCTOBRE" })
   fullDateLabel: string;
 

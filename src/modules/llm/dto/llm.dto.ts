@@ -33,9 +33,72 @@ export interface RecentSessionMetricDto {
   distanceKm?: number; // ex: 10.5 km
 }
 
+export interface StravaMonthlyStatDto {
+  monthKey: string; // ex: "2026-05"
+  monthLabel: string; // ex: "Mai"
+  label?: string; // alias "Mai"
+  totalKm: number;
+  sessionsCount: number;
+  avgPace: string;
+}
+
+export interface StravaSportsBreakdownDto {
+  runningSessions: number;
+  runningKm: number;
+  cyclingSessions: number;
+  cyclingKm: number;
+  swimmingSessions: number;
+  strengthAndOtherSessions: number;
+  crossTrainingHours: number;
+}
+
+export interface StravaSixMonthsSummaryDto {
+  periodMonths: number; // 6
+  startDateKey: string;
+  endDateKey: string;
+  periodStartDate?: string;
+  periodEndDate?: string;
+  totalActivities: number;
+  totalSessions?: number;
+  totalDistanceKm: number;
+  totalKm?: number;
+  totalDurationHours: number;
+  totalElevationGainM: number;
+  activeWeeks: number;
+  averageWeeklyKm: number;
+  avgWeeklyKm?: number;
+  recent4WeeksAvgKm: number;
+  longestRunKm: number;
+  avgHeartRate: number;
+  maxHeartRateObserved: number;
+  ctlFitness?: number;
+  atlFatigue?: number;
+  tsbForm?: number;
+  easyPaceRange?: string;
+  thresholdPace?: string;
+  estimatedPaces: TargetPacesDto & {
+    easyPaceRange?: string;
+    thresholdPace?: string;
+    intervalPace?: string;
+  };
+  banisterLoad: {
+    ctlFitness: number;
+    atlFatigue: number;
+    tsbForm: number;
+    readinessScore: number;
+  };
+  sportsBreakdown?: StravaSportsBreakdownDto;
+  monthlyBreakdown: StravaMonthlyStatDto[];
+  ahaInsight: string;
+  syncedAt: string;
+  sourceMode: "strava_oauth_live" | "strava_history_import";
+}
+
 export interface AthleteTrainingContextDto {
   hasSyncedHistory?: boolean;
   recentWeeklyKm?: number;
+  recent4WeeksAvgKm?: number;
+  totalKm6Months?: number;
   longestRecentRunKm?: number;
   activeWeeks?: number;
   hrMax?: number;
@@ -43,6 +106,7 @@ export interface AthleteTrainingContextDto {
   importedThresholdPaceSecPerKm?: number;
   importedEasyPaceSecPerKm?: number;
   recentSessions?: RecentSessionMetricDto[];
+  sixMonthsSummary?: StravaSixMonthsSummaryDto;
 }
 
 export interface TargetPacesDto {
@@ -153,6 +217,7 @@ export interface MultiWeekPlanGenerationInput {
     actualMaxHeartRate?: number;
     rpeRating?: number;
   }>;
+  sixMonthsStravaSummary?: StravaSixMonthsSummaryDto;
   calendarSlots: CalendarDaySlotDto[];
 }
 

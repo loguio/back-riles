@@ -677,13 +677,35 @@ Réponds UNIQUEMENT avec un objet JSON valide :
    * Calcule le Training Stress Score (hrTSS / Banister TRIMP normalisé) d'une séance
    */
   public computeSessionTss(
-    durationSec: number,
-    avgHeartRate?: number,
-    hrMax = 190,
+    durationSecOrObj:
+      | number
+      | {
+          durationSec: number;
+          distanceKm?: number;
+          avgHeartRate?: number;
+          maxHeartRate?: number;
+        },
+    avgHeartRateArg?: number,
+    hrMaxArg = 190,
   ): number {
+    const durationSec =
+      typeof durationSecOrObj === "number"
+        ? durationSecOrObj
+        : durationSecOrObj?.durationSec || 0;
+    const avgHeartRate =
+      typeof durationSecOrObj === "number"
+        ? avgHeartRateArg
+        : durationSecOrObj?.avgHeartRate;
+    const hrMax =
+      typeof durationSecOrObj === "number"
+        ? hrMaxArg
+        : Math.max(185, durationSecOrObj?.maxHeartRate || 190);
+
     if (!durationSec || durationSec <= 0) return 0;
     const hours = durationSec / 3600;
-    const hrRatio = avgHeartRate ? Math.min(1, Math.max(0.55, avgHeartRate / hrMax)) : 0.75;
+    const hrRatio = avgHeartRate
+      ? Math.min(1, Math.max(0.55, avgHeartRate / hrMax))
+      : 0.75;
     // Intensité relative par rapport au seuil (~0.88 FCmax = IF 1.0 -> 100 TSS/heure)
     const intensityFactor = hrRatio / 0.88;
     return Math.round(hours * intensityFactor * intensityFactor * 100);
@@ -697,15 +719,36 @@ Réponds UNIQUEMENT avec un objet JSON valide :
    * - ReadinessScore (0-100)
    */
   public updateBanisterLoad(
-    currentAtl: number,
-    currentCtl: number,
-    sessionTss: number,
+    currentAtlOrObj:
+      | number
+      | {
+          previousAtl: number;
+          previousCtl: number;
+          todayTss: number;
+          sleepScore?: number;
+          hrvStatus?: string;
+        },
+    currentCtlArg?: number,
+    sessionTssArg?: number,
   ): {
     atlFatigue: number;
     ctlFitness: number;
     tsbForm: number;
     readinessScore: number;
   } {
+    const currentAtl =
+      typeof currentAtlOrObj === "number"
+        ? currentAtlOrObj
+        : currentAtlOrObj.previousAtl;
+    const currentCtl =
+      typeof currentAtlOrObj === "number"
+        ? (currentCtlArg ?? 48)
+        : currentAtlOrObj.previousCtl;
+    const sessionTss =
+      typeof currentAtlOrObj === "number"
+        ? (sessionTssArg ?? 0)
+        : currentAtlOrObj.todayTss;
+
     const atlFatigue = Number(
       (currentAtl + (sessionTss - currentAtl) / 7).toFixed(1),
     );
@@ -752,8 +795,8 @@ Réponds UNIQUEMENT avec un objet JSON valide :
 
   /**
    * Génère un plan d'entraînement multi-semaines complet via le meilleur modèle (LLM_PRO_MODEL)
-   * en lui fournissant TOUT le contexte de l'athlète, ses vraies allures (issues des séances récentes & FC)
-   * et ses LifeRules, au format exact requis pour insertion directe en base de données.
+   * en lui fournissant TOUT le contexte de l'athlète, ses 6 derniers mois de données Strava,
+   * ses vraies allures (issues des séances récentes & FC) et ses LifeRules.
    */
   async generateMultiWeekPlan(
     input: any,
@@ -764,6 +807,7 @@ Réponds UNIQUEMENT avec un objet JSON valide :
   }> {
     const lockedDays = this.getLockedDayNamesFromRules(input.lifeRules || []);
     const paces = input.calculatedPaces;
+    const strava6m = input.sixMonthsStravaSummary;
 
     if (this.canCallExternalLlm()) {
       try {
@@ -774,20 +818,22 @@ RÈGLES ABSOLUES DE CONSTRUCTION DU PLAN :
 1. RESPECT STRICT DES RÈGLES DE VIE (LIFE RULES) :
    - Jours bloqués / sanctuarisés détectés : ${Array.from(lockedDays).join(", ") || "Aucun jour fixe bloqué"}.
    - Sur chaque jour bloqué par une LifeRule, tu DOIS impérativement mettre "isRestDay": true, "category": "RÉCUPÉRATION PASSIVE", "title": "Repos complet (Règle de vie respectée)", "duration": "—", "distance": "0 km".
-2. RESPECT DES ALLURES PHYSIOLOGIQUES RÉELLES (CALCULÉES SUR SES SÉANCES RÉCENTES & FC) :
+2. RESPECT DES ALLURES PHYSIOLOGIQUES RÉELLES (ISSUES DES 6 DERNIERS MOIS STRAVA & FC) :
    - Endurance fondamentale (Zone 2) : ${paces.easyPaceZ2} (132–148 bpm)
    - Allure Marathon / Tempo (Zone 3) : ${paces.marathonPaceZ3} (150–160 bpm)
    - Allure Seuil Anaérobie (Zone 4) : ${paces.thresholdPaceZ4} (162–174 bpm)
    - Allure VMA / Intervalle (Zone 5) : ${paces.intervalPaceZ5} (176–188 bpm)
-3. PROGRESSIVITÉ & PÉRIODISATION SCIENTIFIQUE :
-   - Ne dépasse jamais +10 % d'augmentation de volume hebdomadaire d'une semaine à l'autre.
+3. CALIBRATION SUR LES 6 DERNIERS MOIS STRAVA & PROGRESSIVITÉ SCIENTIFIQUE :
+   - Bilan 6 mois Strava : ${strava6m ? `${strava6m.totalActivities} séances, ${strava6m.totalDistanceKm} km cumulés, moyenne 4 dernières semaines = ${strava6m.recent4WeeksAvgKm} km/sem, plus longue sortie = ${strava6m.longestRunKm} km` : `Volume hebdo récent = ${input.physiologicalState?.recentWeeklyKm || 35} km/sem`}.
+   - Ne dépasse jamais +10 % d'augmentation de volume hebdomadaire d'une semaine à l'autre par rapport au volume récent Strava.
    - Alterne judicieusement séances d'endurance fondamentale (80 % du volume), séance qualitative au seuil/VMA, renforcement/mobilité et sortie longue le week-end.
    - Tiens compte de sa fatigue actuelle (ATL=${input.physiologicalState.atlFatigue}, CTL=${input.physiologicalState.ctlFitness}, TSB=${input.physiologicalState.tsbForm}, Readiness=${input.physiologicalState.readinessScore}%).
 
-CONTEXTE COMPLET DE L'ATHLÈTE :
+CONTEXTE COMPLET DE L'ATHLÈTE (INCLUANT 6 MOIS DE DONNÉES STRAVA) :
 ${JSON.stringify({
   userProfile: input.userProfile,
   physiologicalState: input.physiologicalState,
+  sixMonthsStravaSummary: input.sixMonthsStravaSummary,
   calculatedPaces: input.calculatedPaces,
   lifeRules: input.lifeRules,
   recentCompletedSessions: input.recentCompletedSessions,
@@ -798,7 +844,7 @@ ${JSON.stringify(input.calendarSlots)}
 
 Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
 {
-  "planSummary": "string (Présentation claire et motivante du plan généré sur plusieurs semaines, expliquant la logique de progression et le respect de ses règles de vie)",
+  "planSummary": "string (Présentation claire et motivante du plan généré sur plusieurs semaines, mentionnant explicitement comment ses 6 derniers mois Strava ont servi à calibrer ses allures et son volume, ainsi que le respect de ses règles de vie)",
   "workouts": [
     {
       "dateKey": "YYYY-MM-DD",
@@ -836,7 +882,7 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
         }>(
           this.proModel,
           systemPrompt,
-          `Génère le plan multi-semaines complet pour ${input.userProfile.name} (${input.calendarSlots.length} jours).`,
+          `Génère le plan multi-semaines complet pour ${input.userProfile.name} (${input.calendarSlots.length} jours) à partir de ses 6 mois d'historique Strava.`,
           25000,
         );
 
@@ -860,7 +906,7 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
           return {
             planSummary:
               llmPlan.planSummary ||
-              `Plan multi-semaines généré par ${this.proModel} pour « ${input.userProfile.activeGoalTitle} » en respectant tes règles de vie et tes allures réelles (Z2 ${paces.easyPaceZ2}, Seuil ${paces.thresholdPaceZ4}).`,
+              `Plan multi-semaines généré par ${this.proModel} pour « ${input.userProfile.activeGoalTitle} » à partir de tes 6 derniers mois Strava (Z2 ${paces.easyPaceZ2}, Seuil ${paces.thresholdPaceZ4}).`,
             modelUsed: this.proModel,
             workouts: normalizedWorkouts,
           };
@@ -1171,8 +1217,13 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
         ? `Tes jours sanctuarisés (${Array.from(lockedDays).join(", ")}) sont strictement verrouillés en repos.`
         : "Tes règles de vie sont intégrées sur chaque semaine.";
 
+    const strava6m = input.sixMonthsStravaSummary;
+    const stravaContextNote = strava6m
+      ? `Basé sur tes 6 derniers mois Strava (${strava6m.totalActivities} séances • ${strava6m.totalDistanceKm} km cumulés • ${strava6m.recent4WeeksAvgKm} km/sem sur le dernier mois • sortie longue max ${strava6m.longestRunKm} km). `
+      : "";
+
     return {
-      planSummary: `Plan multi-semaines (${distinctWeeks.length} semaines) généré pour « ${input.userProfile.activeGoalTitle} (${input.userProfile.activeGoalTarget}) ». Allures calibrées sur tes vraies séances & FC (Z2 : ${paces.easyPaceZ2}, Seuil : ${paces.thresholdPaceZ4}). ${lockedInfo}`,
+      planSummary: `Plan multi-semaines (${distinctWeeks.length} semaines) généré pour « ${input.userProfile.activeGoalTitle} (${input.userProfile.activeGoalTarget}) ». ${stravaContextNote}Allures calibrées sur tes vraies séances & FC (Z2 : ${paces.easyPaceZ2}, Seuil : ${paces.thresholdPaceZ4}). ${lockedInfo}`,
       modelUsed: `${this.proModel}-periodized-engine`,
       workouts,
     };

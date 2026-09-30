@@ -11,7 +11,7 @@ import {
   GenerateMultiWeekPlanRequestDto,
   GenerateMultiWeekPlanResponseDto,
 } from "./dto/workout.dto";
-import { ChatSender, WorkoutStatus } from "@prisma/client";
+import { WorkoutStatus } from "@prisma/client";
 
 @Injectable()
 export class WorkoutsService {
@@ -347,47 +347,49 @@ export class WorkoutsService {
       });
     }
 
+    // Récupération des séances réalisées sur les 6 derniers mois (jusqu'à 80 séances Strava/Garmin)
     const recentDoneWorkouts = await this.prisma.workout.findMany({
       where: {
         userId,
         status: WorkoutStatus.DONE,
+        isRestDay: false,
       },
       orderBy: { dateKey: "desc" },
-      take: 10,
+      take: 80,
     });
 
-    // Calcul des allures réelles depuis les vraies séances + FC / Strava / Garmin
+    // Récupération du bilan 6 mois Strava et des métadonnées capteurs
     const stravaToken = user?.syncTokens?.find((t) => t.provider === "strava");
     const garminToken = user?.syncTokens?.find((t) => t.provider === "garmin");
     const garminMeta = (garminToken?.metadata as any) || {};
     const stravaMeta = (stravaToken?.metadata as any) || {};
+    const sixMonthsSummary = stravaMeta.sixMonthsSummary || undefined;
 
-    const calculatedPaces = this.llmService.calculatePacesFromAthleteHistory({
-      goalTitle: user?.activeGoalTitle || "Semi-Marathon de Valence",
-      goalTargetTime: user?.activeGoalTarget || "1h42",
-      weeklyKm: user?.totalKm ? Math.round(user.totalKm / 12) : 42,
-      recentSessions: recentDoneWorkouts.map((w) => ({
-        distanceKm:
-          w.actualDistanceKm ??
-          (parseFloat(
-            (w.distance || "0").replace(",", ".").replace(/[^0-9.]/g, ""),
-          ) ||
-            8),
-        durationMinutes: w.actualDurationSec
-          ? Math.round(w.actualDurationSec / 60)
-          : 45,
-        avgHeartRate: w.actualAvgHeartRate ?? undefined,
-        maxHeartRate: w.actualMaxHeartRate ?? undefined,
-      })),
-      garminData: garminToken
-        ? {
-            vo2Max: garminMeta.vo2Max,
-            lactateThresholdPace: garminMeta.lactateThresholdPace,
-          }
-        : undefined,
-      stravaZones: stravaMeta.heartRateZones
-        ? { heartRateZones: stravaMeta.heartRateZones }
-        : undefined,
+    const sessionMetrics = this.llmService.extractSessionMetricsFromWorkouts(
+      recentDoneWorkouts.slice(0, 20),
+    );
+    const recentWeeklyKm =
+      sixMonthsSummary?.recent4WeeksAvgKm ??
+      (user?.totalKm && user?.activeWeeks
+        ? Number((user.totalKm / Math.max(1, user.activeWeeks)).toFixed(1))
+        : 36);
+    const longestRecentRunKm =
+      sixMonthsSummary?.longestRunKm ??
+      (sessionMetrics && sessionMetrics.length > 0
+        ? Math.max(...sessionMetrics.map((s) => s.distanceKm || 0))
+        : 15);
+
+    const calculatedPaces = this.llmService.computePacesFromRecentPerformance({
+      hasSyncedHistory: true,
+      recentWeeklyKm,
+      recent4WeeksAvgKm: sixMonthsSummary?.recent4WeeksAvgKm,
+      totalKm6Months: sixMonthsSummary?.totalDistanceKm ?? user?.totalKm,
+      longestRecentRunKm,
+      activeWeeks: sixMonthsSummary?.activeWeeks ?? user?.activeWeeks ?? 24,
+      hrMax: sixMonthsSummary?.maxHeartRateObserved ?? 188,
+      importedThresholdPaceSecPerKm: garminMeta.lactateThresholdPace,
+      recentSessions: sessionMetrics,
+      sixMonthsSummary,
     });
 
     // Construction des créneaux calendaires pour les N semaines demandées
@@ -453,37 +455,42 @@ export class WorkoutsService {
     }
 
     const llmPlan = await this.llmService.generateMultiWeekPlan({
-      athleteName: user?.firstName || "Alex",
-      goalTitle: user?.activeGoalTitle || "Semi-Marathon de Valence",
-      goalTarget: user?.activeGoalTarget || "1h42",
-      weeksRemaining: user?.activeGoalWeeksRemaining ?? 6,
-      weeksToGenerate,
-      startWeekNumber: startWeek,
-      year,
-      readinessScore: user?.readinessScore ?? 82,
-      atlFatigue: user?.atlFatigue ?? 45,
-      ctlFitness: user?.ctlFitness ?? 52,
-      tsbForm: user?.tsbForm ?? 7,
-      calculatedPaces: {
-        efPace: calculatedPaces.efPace,
-        marathonPace: calculatedPaces.marathonPace,
-        semiPace: calculatedPaces.semiPace,
-        thresholdPace: calculatedPaces.thresholdPace,
-        vmaPace: calculatedPaces.vmaPace,
+      userProfile: {
+        name: user?.name || "Marius",
+        mainGoal: user?.mainGoal || undefined,
+        activeGoalTitle: user?.activeGoalTitle || "Semi-marathon de Paris",
+        activeGoalTarget: user?.activeGoalTarget || "Passer sous les 2h",
+        activeGoalRaceDate: user?.activeGoalRaceDate || "Dans 12 semaines",
+        activeGoalWeeksRemaining: user?.activeGoalWeeksRemaining ?? 12,
+        selectedSports: user?.selectedSports || ["running"],
       },
+      physiologicalState: {
+        readinessScore: user?.readinessScore ?? 88,
+        totalKm: sixMonthsSummary?.totalDistanceKm ?? user?.totalKm ?? 684,
+        activeWeeks: sixMonthsSummary?.activeWeeks ?? user?.activeWeeks ?? 25,
+        recentWeeklyKm,
+        atlFatigue: user?.atlFatigue ?? 42,
+        ctlFitness: user?.ctlFitness ?? 48,
+        tsbForm: user?.tsbForm ?? 6,
+        sleepScore: user?.sleepScore ?? 82,
+        hrvStatus: user?.hrvStatus || "balanced",
+      },
+      sixMonthsStravaSummary: sixMonthsSummary,
+      calculatedPaces,
       lifeRules: (user?.rules || []).map((r) => ({
         title: r.title,
         description: r.description,
-        tagLabel: r.tagLabel,
+        icon: r.icon,
       })),
-      recentCompletedWorkouts: recentDoneWorkouts.map((w) => ({
+      recentCompletedSessions: recentDoneWorkouts.slice(0, 15).map((w) => ({
         dateKey: w.dateKey,
         title: w.title,
         actualDistanceKm: w.actualDistanceKm ?? undefined,
         actualPace: w.actualPace ?? undefined,
         actualAvgHeartRate: w.actualAvgHeartRate ?? undefined,
+        actualMaxHeartRate: w.actualMaxHeartRate ?? undefined,
       })),
-      calendarDays,
+      calendarSlots: calendarDays,
     });
 
     // Sauvegarde automatique en base PostgreSQL sans écraser les séances déjà réalisées (DONE)
@@ -499,7 +506,7 @@ export class WorkoutsService {
 
     for (const item of llmPlan.workouts) {
       if (doneDateKeys.has(item.dateKey)) {
-        continue; // On conserve précieusement les vraies séances passées
+        continue; // On conserve précieusement les vraies séances passées (Strava 6 mois)
       }
 
       const isTodayDefault = item.dateKey === "2026-10-14";
@@ -538,6 +545,7 @@ export class WorkoutsService {
           effortBlocks: item.effortBlocks as any,
           tags: item.tags,
           aiAdjustmentNote: item.aiAdjustmentNote,
+          tss: item.tss,
         },
         create: {
           userId,
@@ -563,6 +571,7 @@ export class WorkoutsService {
           effortBlocks: item.effortBlocks as any,
           tags: item.tags,
           aiAdjustmentNote: item.aiAdjustmentNote,
+          tss: item.tss,
         },
       });
     }
@@ -572,9 +581,9 @@ export class WorkoutsService {
       await this.prisma.chatMessage.create({
         data: {
           userId,
-          sender: ChatSender.COACH,
+          sender: "coach",
           text: `📋 Plan multi-semaines généré (Semaines ${startWeek} à ${startWeek + weeksToGenerate - 1}) :\n\n${llmPlan.planSummary}`,
-          time: new Date().toLocaleTimeString("fr-FR", {
+          timestamp: new Date().toLocaleTimeString("fr-FR", {
             hour: "2-digit",
             minute: "2-digit",
           }),
@@ -592,6 +601,15 @@ export class WorkoutsService {
         modelUsed: llmPlan.modelUsed,
         planSummary: llmPlan.planSummary,
         workoutsCount: llmPlan.workouts.length,
+      },
+      athleteContext: {
+        calculatedPaces,
+        sixMonthsSummary,
+        lifeRulesCount: user?.rules?.length ?? 0,
+        readinessScore: user?.readinessScore,
+        ctlFitness: user?.ctlFitness,
+        atlFatigue: user?.atlFatigue,
+        tsbForm: user?.tsbForm,
       },
     });
 
@@ -1005,6 +1023,9 @@ export class WorkoutsService {
       dateKey: w.dateKey,
       dayName: w.dayName,
       dayNumber: w.dayNumber,
+      month: w.month,
+      year: w.year,
+      weekNumber: w.weekNumber,
       fullDateLabel: w.fullDateLabel,
       timeLabel: w.timeLabel || undefined,
       status: statusMap[w.status as WorkoutStatus] || "upcoming",

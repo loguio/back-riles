@@ -8,6 +8,7 @@ import {
   IsBoolean,
   IsIn,
 } from "class-validator";
+import { StravaSixMonthsSummaryDto } from "../../llm/dto/llm.dto";
 
 export class ConnectedAppDto {
   @ApiProperty({ example: "garmin" })
@@ -55,6 +56,54 @@ export class OnboardingStateDto {
 
   @ApiProperty({ example: true })
   isCompleted: boolean;
+
+  @ApiPropertyOptional()
+  stravaSixMonthsSummary?: StravaSixMonthsSummaryDto;
+
+  @ApiPropertyOptional()
+  generatedPlanSummary?: string;
+
+  @ApiPropertyOptional({
+    type: Object,
+    description:
+      "Détail structuré du plan multi-semaines généré à la fin de l'onboarding (résumé, semaines, allures cibles, répartition hebdomadaire et aperçu des séances)",
+  })
+  generatedPlan?: {
+    planSummary: string;
+    weeksGenerated: number;
+    startWeekNumber: number;
+    year: number;
+    modelUsed: string;
+    totalPlannedSessions: number;
+    weeklyBreakdown: Array<{
+      weekNumber: number;
+      plannedRunningSessions: number;
+      restDays: number;
+      keySessions: string[];
+    }>;
+  };
+}
+
+export class SyncStravaSixMonthsDto {
+  @ApiPropertyOptional({ example: "4c8b1234..." })
+  @IsOptional()
+  @IsString()
+  code?: string;
+
+  @ApiPropertyOptional({ example: "http://localhost:8081/onboarding" })
+  @IsOptional()
+  @IsString()
+  redirectUri?: string;
+
+  @ApiPropertyOptional({ example: "ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]" })
+  @IsOptional()
+  @IsString()
+  pushToken?: string;
+
+  @ApiPropertyOptional({ example: false })
+  @IsOptional()
+  @IsBoolean()
+  forceRefresh?: boolean;
 }
 
 export class SaveOnboardingStepDto {

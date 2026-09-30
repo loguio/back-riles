@@ -89,7 +89,7 @@ export class CoachService {
             status: { in: [WorkoutStatus.DONE, WorkoutStatus.SELECTED] },
           },
           orderBy: { dateKey: "desc" },
-          take: 10,
+          take: 25,
         }),
         this.prisma.workout.findMany({
           where: {
@@ -104,16 +104,21 @@ export class CoachService {
         }),
       ]);
 
+    const stravaToken = user?.syncTokens?.find((t) => t.provider === "strava");
+    const sixMonthsSummary = (stravaToken?.metadata as any)?.sixMonthsSummary;
+
     const recentSessions =
       this.llmService.extractSessionMetricsFromWorkouts(recentWorkouts);
     const longestRecentRunKm =
-      recentSessions && recentSessions.length > 0
+      sixMonthsSummary?.longestRunKm ??
+      (recentSessions && recentSessions.length > 0
         ? Math.max(...recentSessions.map((s) => s.distanceKm || 0))
-        : undefined;
+        : undefined);
     const recentWeeklyKm =
-      user?.totalKm && user?.activeWeeks
+      sixMonthsSummary?.recent4WeeksAvgKm ??
+      (user?.totalKm && user?.activeWeeks
         ? user.totalKm / Math.max(1, user.activeWeeks)
-        : undefined;
+        : undefined);
     const hasSyncedHistory =
       Boolean(user?.syncTokens && user.syncTokens.length > 0) ||
       recentWorkouts.some((w) => w.status === WorkoutStatus.DONE);
@@ -125,8 +130,8 @@ export class CoachService {
       activeGoalTarget: user?.activeGoalTarget || "Passer sous les 2h",
       activeGoalRaceDate: user?.activeGoalRaceDate || "17 mars 2025",
       activeGoalWeeksRemaining: user?.activeGoalWeeksRemaining ?? 6,
-      totalKm: user?.totalKm ?? 328,
-      activeWeeks: user?.activeWeeks ?? 12,
+      totalKm: sixMonthsSummary?.totalDistanceKm ?? user?.totalKm ?? 684,
+      activeWeeks: sixMonthsSummary?.activeWeeks ?? user?.activeWeeks ?? 25,
       atlFatigue: user?.atlFatigue ?? 42,
       ctlFitness: user?.ctlFitness ?? 48,
       tsbForm: user?.tsbForm ?? 6,
@@ -141,9 +146,13 @@ export class CoachService {
       trainingContext: {
         hasSyncedHistory,
         recentWeeklyKm,
+        recent4WeeksAvgKm: sixMonthsSummary?.recent4WeeksAvgKm,
+        totalKm6Months: sixMonthsSummary?.totalDistanceKm ?? user?.totalKm,
         longestRecentRunKm,
-        activeWeeks: user?.activeWeeks ?? 12,
+        activeWeeks: sixMonthsSummary?.activeWeeks ?? user?.activeWeeks ?? 25,
+        hrMax: sixMonthsSummary?.maxHeartRateObserved,
         recentSessions,
+        sixMonthsSummary,
       },
       activeWorkout: activeWorkout
         ? {

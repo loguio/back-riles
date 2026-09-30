@@ -106,6 +106,18 @@ export class UserProfileDto {
 
   @ApiProperty({ example: "pro", enum: ["basic", "pro"] })
   planType: "basic" | "pro";
+
+  @ApiPropertyOptional({ example: 42 })
+  atlFatigue?: number;
+
+  @ApiPropertyOptional({ example: 48 })
+  ctlFitness?: number;
+
+  @ApiPropertyOptional({ example: 6 })
+  tsbForm?: number;
+
+  @ApiPropertyOptional()
+  stravaSixMonthsSummary?: any;
 }
 
 export class UpdateProfileDto {
