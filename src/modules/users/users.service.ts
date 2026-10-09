@@ -99,14 +99,29 @@ export class UsersService {
     userId: string,
     dto: CreateUserRuleDto,
   ): Promise<UserRuleDto[]> {
-    await this.prisma.lifeRule.create({
-      data: {
+    const cleanTitle = (dto.title || "").trim();
+    const cleanDesc = (dto.description || "").trim();
+
+    const existing = await this.prisma.lifeRule.findFirst({
+      where: {
         userId,
-        title: dto.title,
-        description: dto.description,
-        icon: dto.icon,
+        OR: [
+          { title: { equals: cleanTitle, mode: "insensitive" } },
+          { description: { equals: cleanDesc, mode: "insensitive" } },
+        ],
       },
     });
+
+    if (!existing && cleanTitle.length > 0) {
+      await this.prisma.lifeRule.create({
+        data: {
+          userId,
+          title: cleanTitle,
+          description: cleanDesc,
+          icon: dto.icon || "calendar-lock",
+        },
+      });
+    }
 
     const rules = await this.prisma.lifeRule.findMany({
       where: { userId },

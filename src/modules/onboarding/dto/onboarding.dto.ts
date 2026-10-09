@@ -66,17 +66,30 @@ export class OnboardingStateDto {
   @ApiPropertyOptional({
     type: Object,
     description:
-      "Détail structuré du plan multi-semaines généré à la fin de l'onboarding (résumé, semaines, allures cibles, répartition hebdomadaire et aperçu des séances)",
+      "Détail structuré du plan multi-semaines généré à la fin de l'onboarding (résumé, semaines, phases de préparation, répartition hebdomadaire et aperçu des séances)",
   })
   generatedPlan?: {
     planSummary: string;
     weeksGenerated: number;
     startWeekNumber: number;
     year: number;
+    targetRaceDate?: string;
     modelUsed: string;
     totalPlannedSessions: number;
+    phases: Array<{
+      name: string;
+      weeksRangeLabel: string;
+      focus: string;
+      weekType: string;
+      avgKm: number;
+      sessionsPerWeek: number;
+    }>;
     weeklyBreakdown: Array<{
       weekNumber: number;
+      relativeWeek: number;
+      phaseName: string;
+      weekType: string;
+      estimatedKm: number;
       plannedRunningSessions: number;
       restDays: number;
       keySessions: string[];
@@ -165,6 +178,23 @@ export class SaveOnboardingStepDto {
     description: string;
     icon: string;
   }>;
+
+  @ApiPropertyOptional({
+    example: "2027-05-18",
+    description: "Date cible de la course/épreuve si spécifiée par l'athlète",
+  })
+  @IsOptional()
+  @IsString()
+  targetRaceDate?: string;
+
+  @ApiPropertyOptional({
+    example: 12,
+    description:
+      "Nombre de semaines calculées pour le plan (3 mois par défaut si pas de date)",
+  })
+  @IsOptional()
+  @IsNumber()
+  weeksToGenerate?: number;
 }
 
 export class CompleteOnboardingDto extends SaveOnboardingStepDto {}
@@ -177,5 +207,10 @@ export class ReformulateOnboardingGoalDto {
   @IsNotEmpty()
   @IsString()
   rawGoal: string;
+
+  @ApiPropertyOptional({ example: "2027-05-18" })
+  @IsOptional()
+  @IsString()
+  targetRaceDate?: string;
 }
 

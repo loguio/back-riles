@@ -277,11 +277,11 @@ export class GenerateMultiWeekPlanRequestDto {
   @IsNumber()
   year?: number;
 
-  @ApiPropertyOptional({ example: 4, minimum: 1, maximum: 12 })
+  @ApiPropertyOptional({ example: 12, minimum: 1, maximum: 104 })
   @IsOptional()
   @IsNumber()
   @Min(1)
-  @Max(12)
+  @Max(104)
   weeksToGenerate?: number;
 }
 

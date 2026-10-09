@@ -4,6 +4,7 @@ import {
   Post,
   Body,
   Query,
+  Res,
   HttpCode,
   HttpStatus,
 } from "@nestjs/common";
@@ -69,6 +70,7 @@ export class WebhooksController {
   async handleStravaOAuthCallback(
     @Query("code") code?: string,
     @Query("state") state?: string,
+    @Res() res?: any,
   ) {
     const userId = state || "demo-user-marius-2026";
     const summary = await this.webhooksService.syncStravaSixMonthsHistory(
@@ -78,6 +80,11 @@ export class WebhooksController {
         forceRefresh: true,
       },
     );
+    if (res && typeof res.redirect === "function") {
+      return res.redirect(
+        "http://localhost:8081/onboarding?step=4&strava_synced=true",
+      );
+    }
     return {
       status: "ok",
       provider: "strava",

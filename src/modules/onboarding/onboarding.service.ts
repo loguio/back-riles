@@ -172,9 +172,9 @@ export class OnboardingService {
         currentStep: 1,
         authMethod: null,
         userEmail: "",
-        mainGoal: "Me préparer pour mon premier semi-marathon sans me blesser",
+        mainGoal: "",
         selectedSports: ["running"],
-        connectedApps: ["garmin", "strava"],
+        connectedApps: [],
         selectedPlan: "pro",
         isCompleted: false,
       };
@@ -195,13 +195,9 @@ export class OnboardingService {
             ? "google"
             : "email",
       userEmail: user.email,
-      mainGoal:
-        user.mainGoal ||
-        user.activeGoalTarget ||
-        "Me préparer pour mon premier semi-marathon sans me blesser",
+      mainGoal: user.mainGoal || user.activeGoalTarget || "",
       selectedSports: user.selectedSports || ["running"],
-      connectedApps:
-        connectedApps.length > 0 ? connectedApps : ["garmin", "strava"],
+      connectedApps: connectedApps,
       selectedPlan: user.planType === PlanType.PRO ? "pro" : "basic",
       isCompleted: user.isOnboardingCompleted,
       stravaSixMonthsSummary,
@@ -335,8 +331,9 @@ export class OnboardingService {
     }
 
     // 2. Reformulation & calibration de l'objectif avec le contexte des 6 mois de données Strava
+    let parsed: any = null;
     if (dto?.mainGoal) {
-      const parsed = await this.reformulateGoal(userId, dto.mainGoal);
+      parsed = await this.reformulateGoal(userId, dto.mainGoal);
       dataToUpdate.mainGoal = dto.mainGoal;
       dataToUpdate.activeGoalTitle = parsed.extractedGoal.title;
       dataToUpdate.activeGoalTarget = parsed.extractedGoal.target;
@@ -371,6 +368,37 @@ export class OnboardingService {
       }
     }
 
+    // Détermination dynamique de la date d'objectif et de la durée du plan :
+    // - Si pas de date précisée : plan par défaut sur 3 mois (12 semaines)
+    // - Si date précisée : plan jusqu'à la date d'objectif prévue
+    const now = new Date();
+    const currentWeekNumber = this.workoutsService.getIsoWeekNumber(now);
+    const currentYear = now.getFullYear();
+
+    const rawDateCandidate =
+      dto?.targetRaceDate ||
+      parsed?.extractedGoal?.raceDate ||
+      (dto?.mainGoal ? this.extractDateMention(dto.mainGoal) : undefined);
+
+    const { targetDate, weeks: calculatedWeeks } =
+      this.parseTargetRaceDate(rawDateCandidate);
+
+    const weeksToGenerate = dto?.weeksToGenerate && dto.weeksToGenerate > 0
+      ? dto.weeksToGenerate
+      : calculatedWeeks;
+
+    if (targetDate) {
+      dataToUpdate.activeGoalRaceDate = targetDate.toLocaleDateString("fr-FR", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      });
+      dataToUpdate.activeGoalWeeksRemaining = weeksToGenerate;
+    } else {
+      dataToUpdate.activeGoalRaceDate = "Dans 12 semaines (3 mois)";
+      dataToUpdate.activeGoalWeeksRemaining = 12;
+    }
+
     if (dto?.selectedSports) {
       dataToUpdate.selectedSports = dto.selectedSports;
     }
@@ -385,23 +413,37 @@ export class OnboardingService {
     });
 
     // 3. Génération automatique du plan multi-semaines par LLM_PRO_MODEL en s'appuyant sur :
-    //    - les 6 derniers mois de données Strava (volume récent, sortie longue max, charge CTL/ATL/TSB, sports globaux)
+    //    - les 6 derniers mois de données Strava (volume récent, sortie longue max, charge CTL/ATL/TSB)
     //    - les allures physiologiques réelles (Z2, Z3, Z4, Z5)
-    //    - l'objectif et les LifeRules de l'utilisateur
+    //    - l'objectif et la durée personnalisée (jusqu'à la date d'épreuve ou 12 semaines par défaut)
     const planResult = await this.workoutsService.generateAndSaveMultiWeekPlan(
       userId,
       {
-        startWeekNumber: 42,
-        year: 2026,
-        weeksToGenerate: 4,
+        startWeekNumber: currentWeekNumber,
+        year: currentYear,
+        weeksToGenerate,
       },
     );
 
-    // Construction du résumé structuré semaine par semaine pour affichage en fin d'onboarding
+    // Calcul du volume hebdomadaire moyen de référence
+    const stravaToken = await this.prisma.syncToken.findUnique({
+      where: { userId_provider: { userId, provider: "strava" } },
+    });
+    const sixMonthsSummary = (stravaToken?.metadata as any)?.sixMonthsSummary;
+    const baseWeeklyKm = sixMonthsSummary?.recent4WeeksAvgKm || 30;
+
+    // Découpage automatique des 4 phases de la préparation
+    const phases = this.computePreparationPhases(weeksToGenerate, baseWeeklyKm);
+
+    // Construction du résumé structuré semaine par semaine
     const byWeek = new Map<
       number,
       {
         weekNumber: number;
+        relativeWeek: number;
+        phaseName: string;
+        weekType: string;
+        estimatedKm: number;
         plannedRunningSessions: number;
         restDays: number;
         keySessions: string[];
@@ -409,9 +451,13 @@ export class OnboardingService {
     >();
 
     for (const w of planResult.workouts) {
-      const wk = w.weekNumber ?? 42;
+      const wk = w.weekNumber ?? currentWeekNumber;
       const entry = byWeek.get(wk) || {
         weekNumber: wk,
+        relativeWeek: 1,
+        phaseName: "Phase 1 : Socle Aérobie",
+        weekType: "Endurance & Volume",
+        estimatedKm: 0,
         plannedRunningSessions: 0,
         restDays: 0,
         keySessions: [],
@@ -421,21 +467,55 @@ export class OnboardingService {
       } else {
         entry.plannedRunningSessions += 1;
         entry.keySessions.push(`${w.dayName} : ${w.title} (${w.distance})`);
+        const distNum =
+          parseFloat(
+            (w.distance || "0").replace(",", ".").replace(/[^0-9.]/g, ""),
+          ) || 0;
+        entry.estimatedKm += distNum;
       }
       byWeek.set(wk, entry);
     }
 
+    const sortedWeeks = Array.from(byWeek.values()).sort(
+      (a, b) => a.weekNumber - b.weekNumber,
+    );
+
+    sortedWeeks.forEach((item, index) => {
+      item.relativeWeek = index + 1;
+      item.estimatedKm = Math.round(item.estimatedKm);
+      const pct = (index + 1) / Math.max(1, sortedWeeks.length);
+      if (pct <= 0.35) {
+        item.phaseName = "Phase 1 : Socle Aérobie";
+        item.weekType =
+          (index + 1) % 4 === 0
+            ? "Assimilation (Deload)"
+            : "Volume & Endurance Z2";
+      } else if (pct <= 0.65) {
+        item.phaseName = "Phase 2 : Seuil & Allure Cible";
+        item.weekType =
+          (index + 1) % 4 === 0
+            ? "Assimilation (Deload)"
+            : "Fractions Seuil Z4";
+      } else if (pct <= 0.85) {
+        item.phaseName = "Phase 3 : Pic Spécifique";
+        item.weekType = "Allure Course & Sortie Longue";
+      } else {
+        item.phaseName = "Phase 4 : Affûtage";
+        item.weekType = "Affûtage & Fraîcheur";
+      }
+    });
+
     const generatedPlan = {
       planSummary: planResult.planSummary,
       weeksGenerated: planResult.weeksGenerated,
-      startWeekNumber: 42,
-      year: 2026,
+      startWeekNumber: currentWeekNumber,
+      year: currentYear,
+      targetRaceDate: dataToUpdate.activeGoalRaceDate,
       modelUsed: planResult.modelUsed,
       totalPlannedSessions: planResult.workouts.filter((w) => !w.isRestDay)
         .length,
-      weeklyBreakdown: Array.from(byWeek.values()).sort(
-        (a, b) => a.weekNumber - b.weekNumber,
-      ),
+      phases,
+      weeklyBreakdown: sortedWeeks,
     };
 
     // Sauvegarde du résumé du plan dans les métadonnées Strava pour persistance dans getOnboardingState
@@ -483,12 +563,206 @@ export class OnboardingService {
     };
   }
 
-  async resetOnboarding(userId: string): Promise<OnboardingStateDto> {
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        isOnboardingCompleted: false,
+  public extractDateMention(text: string): string | undefined {
+    const frMatch = text.match(/\b\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}\b/);
+    if (frMatch) return frMatch[0];
+    const textDateMatch = text.match(/\b\d{1,2}\s+[a-zéû]+\s+\d{4}\b/i);
+    if (textDateMatch) return textDateMatch[0];
+    const weeksMatch = text.match(/\b\d+\s*semaines?\b/i);
+    if (weeksMatch) return weeksMatch[0];
+    const monthsMatch = text.match(/\b\d+\s*mois\b/i);
+    if (monthsMatch) return monthsMatch[0];
+    return undefined;
+  }
+
+  public parseTargetRaceDate(
+    dateStr?: string,
+  ): { targetDate: Date | null; weeks: number } {
+    const defaultWeeks = 12; // 3 mois par défaut si pas de date d'objectif
+    if (!dateStr || !dateStr.trim()) {
+      return { targetDate: null, weeks: defaultWeeks };
+    }
+
+    const trimmed = dateStr.trim();
+    const now = new Date();
+
+    // 1. Format ISO "YYYY-MM-DD"
+    const isoMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (isoMatch) {
+      const d = new Date(
+        parseInt(isoMatch[1], 10),
+        parseInt(isoMatch[2], 10) - 1,
+        parseInt(isoMatch[3], 10),
+      );
+      if (!isNaN(d.getTime()) && d > now) {
+        const weeks = Math.max(
+          1,
+          Math.round((d.getTime() - now.getTime()) / (7 * 24 * 3600 * 1000)),
+        );
+        return { targetDate: d, weeks };
+      }
+    }
+
+    // 2. Format FR "DD/MM/YYYY" ou "DD-MM-YYYY"
+    const frMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if (frMatch) {
+      const d = new Date(
+        parseInt(frMatch[3], 10),
+        parseInt(frMatch[2], 10) - 1,
+        parseInt(frMatch[1], 10),
+      );
+      if (!isNaN(d.getTime()) && d > now) {
+        const weeks = Math.max(
+          1,
+          Math.round((d.getTime() - now.getTime()) / (7 * 24 * 3600 * 1000)),
+        );
+        return { targetDate: d, weeks };
+      }
+    }
+
+    // 3. Mois en français dans le texte, ex: "18 mai 2027", "12 octobre 2026"
+    const monthsFr: Record<string, number> = {
+      janvier: 0,
+      février: 1,
+      fevrier: 1,
+      mars: 2,
+      avril: 3,
+      mai: 4,
+      juin: 5,
+      juillet: 6,
+      août: 7,
+      aout: 7,
+      septembre: 8,
+      octobre: 9,
+      novembre: 10,
+      décembre: 11,
+      decembre: 11,
+    };
+    const textDateMatch = trimmed
+      .toLowerCase()
+      .match(/(\d{1,2})\s+([a-zéû]+)\s+(\d{4})/i);
+    if (textDateMatch && monthsFr[textDateMatch[2]] !== undefined) {
+      const d = new Date(
+        parseInt(textDateMatch[3], 10),
+        monthsFr[textDateMatch[2]],
+        parseInt(textDateMatch[1], 10),
+      );
+      if (!isNaN(d.getTime()) && d > now) {
+        const weeks = Math.max(
+          1,
+          Math.round((d.getTime() - now.getTime()) / (7 * 24 * 3600 * 1000)),
+        );
+        return { targetDate: d, weeks };
+      }
+    }
+
+    // 4. "Dans X semaines" ou "Dans X mois"
+    const weeksMatch = trimmed.match(/(\d+)\s*semaine/i);
+    if (weeksMatch) {
+      const w = parseInt(weeksMatch[1], 10);
+      if (w > 0) {
+        const d = new Date(now.getTime() + w * 7 * 24 * 3600 * 1000);
+        return { targetDate: d, weeks: w };
+      }
+    }
+
+    const monthsMatch = trimmed.match(/(\d+)\s*mois/i);
+    if (monthsMatch) {
+      const m = parseInt(monthsMatch[1], 10);
+      if (m > 0) {
+        const d = new Date(now.getTime() + m * 30 * 24 * 3600 * 1000);
+        return { targetDate: d, weeks: m * 4 };
+      }
+    }
+
+    return { targetDate: null, weeks: defaultWeeks };
+  }
+
+  public computePreparationPhases(
+    totalWeeks: number,
+    baseWeeklyKm = 30,
+  ): Array<{
+    name: string;
+    weeksRangeLabel: string;
+    focus: string;
+    weekType: string;
+    avgKm: number;
+    sessionsPerWeek: number;
+  }> {
+    const w = Math.max(4, totalWeeks);
+    const p1End = Math.max(1, Math.round(w * 0.3));
+    const p2End = Math.max(p1End + 1, Math.round(w * 0.65));
+    const p3End = Math.max(p2End + 1, Math.max(p2End + 1, w - 2));
+
+    const km1 = Math.round(baseWeeklyKm * 0.95);
+    const km2 = Math.round(baseWeeklyKm * 1.15);
+    const km3 = Math.round(baseWeeklyKm * 1.3);
+    const km4 = Math.round(baseWeeklyKm * 0.75);
+
+    return [
+      {
+        name: "Phase 1 : Socle & Volume Aérobie",
+        weeksRangeLabel: `Semaines 1 à ${p1End}`,
+        focus:
+          "Développement de l'aisance respiratoire en Zone 2, renforcement musculaire et régularité.",
+        weekType: "Endurance & Socle",
+        avgKm: km1,
+        sessionsPerWeek: 3,
       },
+      {
+        name: "Phase 2 : Développement Seuil & Allure Cible",
+        weeksRangeLabel: `Semaines ${p1End + 1} à ${p2End}`,
+        focus:
+          "Fractions au seuil anaérobie (Z4), maintien de l'allure cible et montée en charge.",
+        weekType: "Seuil & Tempo",
+        avgKm: km2,
+        sessionsPerWeek: 3,
+      },
+      {
+        name: "Phase 3 : Pic Spécifique & Sorties Clés",
+        weeksRangeLabel: `Semaines ${p2End + 1} à ${p3End}`,
+        focus:
+          "Séances d'allure spécifique course, plus longue sortie de la préparation et assimilation.",
+        weekType: "Pic Spécifique",
+        avgKm: km3,
+        sessionsPerWeek: 4,
+      },
+      {
+        name: "Phase 4 : Affûtage & Fraîcheur",
+        weeksRangeLabel:
+          p3End < w ? `Semaines ${p3End + 1} à ${w}` : `Semaine ${w}`,
+        focus:
+          "Baisse progressive du volume (-40 %), conservation de l'intensité et fraîcheur avant l'épreuve.",
+        weekType: "Affûtage",
+        avgKm: km4,
+        sessionsPerWeek: 2,
+      },
+    ];
+  }
+
+  async resetOnboarding(userId: string): Promise<OnboardingStateDto> {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.rpeCheckIn.deleteMany({ where: { userId } });
+      await tx.workout.deleteMany({ where: { userId } });
+      await tx.chatMessage.deleteMany({ where: { userId } });
+      await tx.lifeRule.deleteMany({ where: { userId } });
+      await tx.syncToken.deleteMany({ where: { userId } });
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          isOnboardingCompleted: false,
+          mainGoal: null,
+          selectedSports: ["running"],
+          activeGoalTitle: "",
+          activeGoalTarget: "",
+          activeGoalRaceDate: "",
+          activeGoalWeeksRemaining: 0,
+          activeGoalProgressPercentage: 0,
+          totalKm: 0,
+          activeWeeks: 0,
+          completedRaces: 0,
+        },
+      });
     });
 
     return this.getOnboardingState(userId);

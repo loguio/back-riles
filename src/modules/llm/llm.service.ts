@@ -598,28 +598,40 @@ Réponds UNIQUEMENT avec un objet JSON valide au format suivant :
 RÈGLES STRICTES :
 1. Reformule toujours automatiquement l'intention de l'utilisateur dès le début de ta réponse ("reformulatedIntent" et première phrase de "replyText").
 2. Zéro culpabilisation : valorise toujours l'écoute du corps et le repos quand il est plus rentable qu'une séance forcée.
-3. Si l'utilisateur exprime une contrainte durable ou une règle de vie (ex: "je ne peux jamais courir le jeudi", "pas plus de 45 min en semaine", "ajoute une règle..."), reformule-la automatiquement et renvoie un suggestedAction avec type="add_life_rule", details="add_life_rule" et ruleData={ title, description, icon }.
-4. Si l'utilisateur signale un problème, un imprévu, une fatigue, un manque de temps ou une gêne musculaire, recalcule dynamiquement sa séance du jour ET rééquilibre les séances restantes de sa semaine ("recalculatedWeekWorkouts") en respectant ses règles de vie (jours bloqués) et choisis parmi ces details autorisés :
+3. RÈGLES DE VIE (LIFE RULES) :
+   - N'ajoute JAMAIS de règle de vie (type="add_life_rule") pour une simple question, une discussion d'entraînement, ou une adaptation ponctuelle de séance (fatigue du jour, manque de temps, séance allégée ou décalée) !
+   - Vérifie toujours la liste athleteContext.rules : si une règle similaire existe déjà, ne la recrée pas !
+   - N'ajoute une règle (type="add_life_rule") QUE si l'utilisateur demande explicitement d'instaurer une contrainte permanente dans son emploi du temps (ex: « Bloque définitivement mes jeudis », « Je ne peux plus jamais courir le samedi »).
+4. Si l'utilisateur signale un problème ponctuel, un imprévu, une fatigue, un manque de temps ou une gêne musculaire, recalcule dynamiquement sa séance du jour ET rééquilibre les séances restantes de sa semaine ("recalculatedWeekWorkouts") en respectant ses règles de vie (jours bloqués) et choisis parmi ces details autorisés :
    - "lighten" (raccourcir/alléger à 35 min Zone 2 et lisser la semaine)
    - "easy_run" (remplacer par 30 min footing régénérant Zone 1-2)
    - "postpone" (décaler la séance et réorganiser les jours suivants)
    - "injury_care" (20 min mobilité douce sans impact et assouplir la fin de semaine)
 5. Ne calcule JAMAIS les allures à partir de l'objectif rêvé. Respecte strictement les allures physiologiques calculées sur les séances récentes et la fréquence cardiaque de l'athlète : Endurance Z2=${paces.easyPaceZ2}, Allure Marathon Z3=${paces.marathonPaceZ3}, Seuil Z4=${paces.thresholdPaceZ4}, VMA Z5=${paces.intervalPaceZ5}.
 6. Pour tout objectif ambitieux (ex: Ultra, Marathon), juge sa faisabilité UNIQUEMENT par rapport au contexte d'entraînement réel de l'athlète (s'il est déjà en milieu de prépa avec le bon volume, valide-le à 100 %).
+7. DISCUSSION SUR LES SÉANCES PASSÉES ET FUTURES :
+   - Si l'utilisateur pose une question ou fait un débrief sur une séance réalisée (notamment sa sortie Strava d'aujourd'hui ou ses dernières sorties) : consulte la section « HISTORIQUE RÉCENT (-7 JOURS) ». Analyse avec lui ses vraies métriques (allure, FC, distance) et donne-lui ton feedback d'expert bienveillant. Laisse suggestedAction et recalculatedWeekWorkouts à null.
+   - Si l'utilisateur pose une question sur ses prochaines séances (demain, week-end, semaine prochaine) : consulte la section « PLAN IMMÉDIAT (+7 JOURS) » et décris-lui son programme à venir.
+   - Si l'utilisateur pose une question sur le moyen/long terme (dans un mois, l'affûtage, etc.) : consulte la section « MACROCYCLE DE PRÉPARATION » pour expliquer la phase et la charge prévues.
+8. AJUSTEMENT DU VOLUME KILOMÉTRIQUE OU DU PLAN :
+   - Si l'utilisateur demande d'ajuster le volume (ex: « plus de km », « moins de kilomètres », « augmenter le volume », « trop court », « trop long », « adapter une phase ») :
+   - Agis en coach sage et expérimenté : explique les compromis physiologiques (ex: progression plafonnée à +10-15% par semaine max pour préserver les tendons et articulations).
+   - Ne valide jamais les demandes délirantes ou dangereuses sans avertissement.
+   - Si la demande est pertinente, adapte les distances et durées des séances de la semaine dans "recalculatedWeekWorkouts" (en priorité sur l'Endurance Fondamentale Z2 et la Sortie Longue).
 
-CONTEXTE ATHLÈTE COMPLET (incluant currentWeekWorkouts) :
-${JSON.stringify(athleteContext)}
+CONTEXTE ATHLÈTE CONDENSÉ & ANONYMISÉ :
+${this.buildCompactAthleteMarkdownContext(athleteContext, paces)}
 
 Réponds UNIQUEMENT avec un objet JSON valide :
 {
-  "replyText": "string (ta réponse bienveillante en français, 2 à 4 phrases max, commençant par reformuler automatiquement ce que tu as compris et expliquant comment tu as recalculé sa semaine)",
+  "replyText": "string (ta réponse bienveillante en français, 2 à 4 phrases max, commençant par reformuler automatiquement ce que tu as compris et expliquant comment tu as recalculé sa semaine si applicable)",
   "reformulatedIntent": "string (résumé court de la demande)",
   "safetyStatus": "safe | warning_fatigue | medical_stop | unrealistic_goal",
   "suggestedAction": {
     "type": "adjust_workout | reschedule | reduce_intensity | add_life_rule | recalculate_week",
     "label": "string (ex: Semaine recalculée : Séance allégée & fin de semaine ajustée)",
     "applied": true,
-    "details": "lighten | easy_run | postpone | injury_care | add_life_rule",
+    "details": "lighten | easy_run | postpone | injury_care | add_life_rule | increase_volume | decrease_volume",
     "ruleData": { "title": "string", "description": "string", "icon": "calendar-lock | clock-outline | bullseye-arrow | sleep" }
   },
   "recalculatedWeekWorkouts": [
@@ -667,6 +679,110 @@ Réponds UNIQUEMENT avec un objet JSON valide :
 
     // 5. Moteur Hybride Local Intelligent (0 ms, fonctionne même hors-ligne / sans clé)
     return this.generateDeterministicCoachReply(userPrompt, athleteContext, paces);
+  }
+
+  /**
+   * Construit une fiche athlète condensée en Markdown (~400-450 tokens) :
+   * - 100 % anonyme (aucun prénom, nom, email ou id interne)
+   * - Profil athlète & forme Banister
+   * - Allures physiologiques calculées
+   * - Règles de vie sanctuarisées
+   * - Macrocycle (découpage sur les semaines de prépa) pour répondre aux questions à moyen/long terme
+   * - Timeline compacte : historique récent (-7 jours) & plan immédiat (+7 jours)
+   */
+  public buildCompactAthleteMarkdownContext(
+    athleteContext: LlmCoachReplyInput["athleteContext"],
+    paces: TargetPacesDto,
+  ): string {
+    const today =
+      athleteContext.todayDate ||
+      new Date().toISOString().split("T")[0];
+    const weeksRemaining = athleteContext.activeGoalWeeksRemaining || 8;
+    const weeklyKm = Math.round(
+      athleteContext.trainingContext?.recentWeeklyKm ||
+        athleteContext.trainingContext?.recent4WeeksAvgKm ||
+        (athleteContext.totalKm && athleteContext.activeWeeks
+          ? athleteContext.totalKm / Math.max(1, athleteContext.activeWeeks)
+          : 28),
+    );
+
+    // 1. Profil & Forme Banister (Anonymisé)
+    const profileSection = `### 1. PROFIL ATHLÈTE (Anonyme)
+- Objectif : ${athleteContext.activeGoalTitle || "Objectif Course"} (${athleteContext.activeGoalTarget || "Terminer en forme"})
+- Calendrier : Préparation en cours (reste ~${weeksRemaining} semaines)
+- Échéance : ${athleteContext.activeGoalRaceDate || "Non définie"}
+- Volume habituel : ~${weeklyKm} km/semaine
+- Forme actuelle (Banister) : TSB (Forme) ${athleteContext.tsbForm ?? 6} | ATL (Fatigue) ${athleteContext.atlFatigue ?? 42} | CTL (Fitness) ${athleteContext.ctlFitness ?? 48}`;
+
+    // 2. Allures physiologiques
+    const pacesSection = `### 2. ALLURES PHYSIOLOGIQUES OBSERVÉES (Calibrées sur sorties réelles & FC)
+- Zone 2 (Endurance fondamentale) : ${paces.easyPaceZ2}
+- Zone 3 (Tempo / Allure spécifique) : ${paces.marathonPaceZ3}
+- Zone 4 (Seuil anaérobie) : ${paces.thresholdPaceZ4}
+- Zone 5 (VMA / Intervalles) : ${paces.intervalPaceZ5}
+- Allure cible course : ${paces.targetRacePace}`;
+
+    // 3. Règles de vie
+    const rulesList =
+      athleteContext.rules && athleteContext.rules.length > 0
+        ? athleteContext.rules.map((r) => `- ${r.title} : ${r.description}`).join("\n")
+        : "- Aucune contrainte spécifique enregistrée.";
+    const rulesSection = `### 3. RÈGLES DE VIE SANCTUARISÉES (À respecter scrupuleusement)\n${rulesList}`;
+
+    // 4. Macrocycle de préparation (vision globale sur les cycles)
+    const macrocycleSection = `### 4. MACROCYCLE DE PRÉPARATION (Vision à moyen & long terme)
+- Semaines 1–4 [Phase Socle & Aérobie] : Volume régulier (${Math.round(weeklyKm * 0.9)}–${weeklyKm} km/sem), endurance fondamentale Z2 et renforcement musculaire.
+- Semaines 5–8 [Phase Seuil & Spécifique - DANS UN MOIS] : Montée de charge (${weeklyKm}–${Math.round(weeklyKm * 1.25)} km/sem), travail au seuil Z4 et allongement progressif des sorties longues.
+- Semaines 9–10 [Phase Pic & Endurance] : Volume maximal (${Math.round(weeklyKm * 1.3)} km/sem), sortie longue clé.
+- Semaines 11–12 [Phase Affûtage & Course] : Baisse du volume de 40%, maintien de l'intensité pour une fraîcheur maximale le jour J.`;
+
+    // 5. Historique récent (-7 jours)
+    const pastItems: string[] = [];
+    if (
+      athleteContext.activeWorkout &&
+      athleteContext.activeWorkout.dateKey === today
+    ) {
+      const act = athleteContext.activeWorkout;
+      pastItems.push(
+        `- Aujourd'hui (${today}) : ${act.title || "Séance du jour"} (${act.distance || act.duration || "Terminée"}) [Fait]`,
+      );
+    }
+    for (const w of athleteContext.pastCompletedWorkouts || []) {
+      if (w.dateKey === today && pastItems.length > 0) continue;
+      const dist = w.actualDistanceKm
+        ? `${w.actualDistanceKm} km`
+        : w.distance || "";
+      const pace = w.actualPace ? `• Allure ${w.actualPace}` : "";
+      const hr = w.actualAvgHeartRate
+        ? `• FC ${w.actualAvgHeartRate} bpm`
+        : "";
+      pastItems.push(
+        `- ${w.dateKey} : ${w.title} (${dist} ${pace} ${hr}) [Fait]`,
+      );
+    }
+    const pastSection = `### 5. HISTORIQUE RÉCENT (-7 JOURS)\n${
+      pastItems.length > 0
+        ? pastItems.join("\n")
+        : "- Aucune sortie enregistrée sur les 7 derniers jours."
+    }`;
+
+    // 6. Plan immédiat (+7 jours)
+    const upcomingItems: string[] = [];
+    for (const w of athleteContext.upcomingPlannedWorkouts || []) {
+      const rest = w.isRestDay
+        ? `REPOS (${w.title})`
+        : `${w.title} (${w.distance} • Cible ${w.targetPace || paces.easyPaceZ2})`;
+      upcomingItems.push(
+        `- ${w.dayName || ""} ${w.dateKey} : ${rest} [Prévu]`,
+      );
+    }
+    const upcomingSection = `### 6. PLAN IMMÉDIAT (+7 JOURS)\n${
+      upcomingItems.length > 0
+        ? upcomingItems.join("\n")
+        : "- Planning de la semaine en cours d'ajustement."
+    }`;
+
+    return `${profileSection}\n\n${pacesSection}\n\n${rulesSection}\n\n${macrocycleSection}\n\n${pastSection}\n\n${upcomingSection}`;
   }
 
   // ============================================================================
@@ -1341,7 +1457,7 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
         paces,
       );
       return {
-        replyText: `C'est bien noté ${userName}. J'ai recalculé ta semaine pour absorber cet imprévu : ta séance du jour passe en footing léger de 35 min en Zone 2 (${paces.easyPaceZ2}) et j'ai ajusté la charge des prochains jours pour que tu restes frais.`,
+        replyText: `C'est bien noté. J'ai recalculé ta semaine pour absorber cet imprévu : ta séance du jour passe en footing léger de 35 min en Zone 2 (${paces.easyPaceZ2}) et j'ai ajusté la charge des prochains jours pour que tu restes frais.`,
         reformulatedIntent: "Allègement de séance & recalcul dynamique de la semaine",
         safetyStatus: "warning_fatigue",
         recalculatedWeekWorkouts: recalculated,
@@ -1370,7 +1486,7 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
         paces,
       );
       return {
-        replyText: `Parfait ${userName}, j'adapte ta semaine à ton emploi du temps ! Ta séance passe sur 30 min en Zone 2 (${paces.easyPaceZ2}) aujourd'hui et le reste de ta semaine est rééquilibré automatiquement.`,
+        replyText: `Parfait, j'adapte ta semaine à ton emploi du temps ! Ta séance passe sur 30 min en Zone 2 (${paces.easyPaceZ2}) aujourd'hui et le reste de ta semaine est rééquilibré automatiquement.`,
         reformulatedIntent: "Séance raccourcie à 30 min & semaine rééquilibrée",
         safetyStatus: "safe",
         recalculatedWeekWorkouts: recalculated,
@@ -1397,7 +1513,7 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
         paces,
       );
       return {
-        replyText: `Aucun souci ${userName}, le plan s'adapte à ta vraie vie sans culpabilité. J'ai placé ton repos aujourd'hui et recalculé la suite de ta semaine en respectant tes règles de vie.`,
+        replyText: `Aucun souci, le plan s'adapte à ta vraie vie sans culpabilité. J'ai placé ton repos aujourd'hui et recalculé la suite de ta semaine en respectant tes règles de vie.`,
         reformulatedIntent: "Report de séance & recalcul dynamique de la semaine",
         safetyStatus: "safe",
         recalculatedWeekWorkouts: recalculated,
@@ -1411,13 +1527,144 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
       };
     }
 
-    // Cas G : Réponse générale contextualisée
+    // Cas G : Demande d'ajustement du volume kilométrique ou du plan
+    if (
+      lowerText.includes("plus de km") ||
+      lowerText.includes("plus de kilomètre") ||
+      lowerText.includes("augmenter le volume") ||
+      lowerText.includes("trop court") ||
+      lowerText.includes("trop léger") ||
+      lowerText.includes("moins de km") ||
+      lowerText.includes("moins de kilomètre") ||
+      lowerText.includes("réduire le volume") ||
+      lowerText.includes("trop de volume") ||
+      lowerText.includes("trop long") ||
+      lowerText.includes("trop chargé")
+    ) {
+      const isIncrease =
+        lowerText.includes("plus de km") ||
+        lowerText.includes("plus de kilomètre") ||
+        lowerText.includes("augmenter") ||
+        lowerText.includes("trop léger") ||
+        lowerText.includes("trop court");
+
+      const recalculated = this.buildRecalculatedWeekForVolume(
+        athleteContext,
+        isIncrease ? "increase" : "decrease",
+        paces,
+      );
+
+      const replyText = isIncrease
+        ? `J'ai ajusté ton volume hebdomadaire à la hausse de façon progressive (+15%) pour protéger tes tendons et ta récupération. Les séances d'endurance fondamentale et la sortie longue ont été recalculées en conséquence.`
+        : `J'ai allégé le volume kilométrique de ta semaine (-15%) suite à ton retour pour préserver ta fraîcheur. Tes séances restent calibrées sur tes allures cibles sans surcharge inutile.`;
+
+      return {
+        replyText,
+        reformulatedIntent: isIncrease
+          ? "Augmentation progressive du volume kilométrique (+15%)"
+          : "Allègement du volume kilométrique (-15%)",
+        safetyStatus: "safe",
+        recalculatedWeekWorkouts: recalculated,
+        suggestedAction: {
+          type: "recalculate_week",
+          label: isIncrease
+            ? "Volume hebdomadaire augmenté (+15% en Z2)"
+            : "Volume hebdomadaire allégé (-15%)",
+          applied: true,
+          details: isIncrease ? "increase_volume" : "decrease_volume",
+        },
+        modelUsed: "hybrid-rule-engine",
+      };
+    }
+
+    // Cas H : Réponse générale contextualisée
     return {
-      replyText: `J'ai bien pris en compte ton message ${userName}. Ton programme pour « ${athleteContext.activeGoalTitle || "Semi-marathon"} (${athleteContext.activeGoalTarget || "sous les 2h"}) » est calibré sur tes séances récentes (Endurance Z2 : ${paces.easyPaceZ2}, Seuil Z4 : ${paces.thresholdPaceZ4}). Dis-moi si tu as un imprévu ou une fatigue et je recalcule ta semaine automatiquement !`,
+      replyText: `J'ai bien pris en compte ton message. Ton programme pour « ${athleteContext.activeGoalTitle || "Semi-marathon"} (${athleteContext.activeGoalTarget || "sous les 2h"}) » est calibré sur tes séances récentes (Endurance Z2 : ${paces.easyPaceZ2}, Seuil Z4 : ${paces.thresholdPaceZ4}). Dis-moi si tu as un imprévu ou une fatigue et je recalcule ta semaine automatiquement !`,
       reformulatedIntent: "Échange général sur le suivi d'entraînement",
       safetyStatus: "safe",
       modelUsed: "hybrid-rule-engine",
     };
+  }
+
+  /**
+   * Recalcule dynamiquement le volume des séances restantes de la semaine (augmentation ou réduction)
+   */
+  private buildRecalculatedWeekForVolume(
+    athleteContext: LlmCoachReplyInput["athleteContext"],
+    mode: "increase" | "decrease",
+    paces: TargetPacesDto,
+  ): NonNullable<LlmCoachReplyOutput["recalculatedWeekWorkouts"]> {
+    const result: NonNullable<LlmCoachReplyOutput["recalculatedWeekWorkouts"]> = [];
+    const weekWorkouts = athleteContext.currentWeekWorkouts || [];
+    const factor = mode === "increase" ? 1.15 : 0.85;
+    const easySinglePace = paces.easyPaceZ2.split("–")[0]?.trim() || "5:45/km";
+
+    for (const w of weekWorkouts) {
+      if (w.status === "done" || w.status === "DONE" || w.isRestDay) {
+        continue;
+      }
+
+      // Extraire la distance numérique
+      const distMatch = w.distance
+        ? w.distance.replace(",", ".").match(/(\d+(\.\d+)?)/)
+        : null;
+      let newDistStr = w.distance;
+      if (distMatch) {
+        const currentKm = parseFloat(distMatch[1]);
+        if (!isNaN(currentKm) && currentKm > 0) {
+          const newKm = Math.round(currentKm * factor * 10) / 10;
+          newDistStr = `${newKm.toString().replace(".", ",")} km`;
+        }
+      }
+
+      // Extraire la durée
+      let newDuration = w.duration;
+      const minMatch = w.duration ? w.duration.match(/(\d+)\s*min/) : null;
+      const hourMatch = w.duration ? w.duration.match(/(\d+)h(\d+)?/) : null;
+      if (hourMatch) {
+        const hours = parseInt(hourMatch[1], 10);
+        const mins = hourMatch[2] ? parseInt(hourMatch[2], 10) : 0;
+        const totalMins = hours * 60 + mins;
+        const adjustedMins = Math.round(totalMins * factor);
+        const newH = Math.floor(adjustedMins / 60);
+        const newM = adjustedMins % 60;
+        newDuration =
+          newH > 0
+            ? `${newH}h${newM < 10 ? "0" + newM : newM}`
+            : `${adjustedMins} min`;
+      } else if (minMatch) {
+        const totalMins = parseInt(minMatch[1], 10);
+        const adjustedMins = Math.round(totalMins * factor);
+        newDuration = `${adjustedMins} min`;
+      }
+
+      const note =
+        mode === "increase"
+          ? `Volume ajusté à la hausse (+15%) en restant en Zone 2 pour assimiler la charge sans risque.`
+          : `Volume allégé (-15%) à ta demande pour optimiser la fraîcheur et la récupération.`;
+
+      result.push({
+        dateKey: w.dateKey,
+        isRestDay: false,
+        category: w.title.toLowerCase().includes("longue")
+          ? "SORTIE LONGUE"
+          : "ENDURANCE FONDAMENTALE",
+        title: `${w.title.replace(/\s*\(Volume adapté\)/g, "")} (Volume adapté)`,
+        duration: newDuration,
+        distance: newDistStr,
+        targetPace: w.targetPace || easySinglePace,
+        targetZoneLabel: "Zone 2",
+        targetZoneBpm: "135–148 bpm",
+        aiAdjustmentNote: note,
+        tags: [
+          newDistStr,
+          newDuration,
+          mode === "increase" ? "Volume +15%" : "Volume -15%",
+        ],
+      });
+    }
+
+    return result;
   }
 
   /**
@@ -1591,6 +1838,20 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
       clearTimeout(timeoutId);
 
       if (!response.ok) {
+        if (
+          (response.status === 503 || response.status === 429) &&
+          model !== this.lightModel
+        ) {
+          this.logger.warn(
+            `Modèle ${model} temporairement indisponible (HTTP ${response.status}), bascule automatique sur ${this.lightModel}...`,
+          );
+          return this.callOpenAiCompatibleJson<T>(
+            this.lightModel,
+            systemPrompt,
+            userMessage,
+            timeoutMs,
+          );
+        }
         const errText = await response.text();
         throw new Error(`HTTP ${response.status}: ${errText.slice(0, 200)}`);
       }
@@ -1646,18 +1907,98 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
         : "Passer sous les 2h";
 
     let weeksRemaining = 12;
-    const monthsMatch = lower.match(/(\d+)\s*mois/i);
-    const weeksMatch = lower.match(/(\d+)\s*semaine/i);
-    if (weeksMatch) {
-      weeksRemaining = parseInt(weeksMatch[1], 10);
-    } else if (monthsMatch) {
-      weeksRemaining = parseInt(monthsMatch[1], 10) * 4;
+    let raceDate = "Dans 12 semaines (3 mois)";
+
+    const now = new Date();
+    const monthsFr: Record<string, number> = {
+      janvier: 0,
+      février: 1,
+      fevrier: 1,
+      mars: 2,
+      avril: 3,
+      mai: 4,
+      juin: 5,
+      juillet: 6,
+      août: 7,
+      aout: 7,
+      septembre: 8,
+      octobre: 9,
+      novembre: 10,
+      décembre: 11,
+      decembre: 11,
+    };
+
+    const textDateMatch = lower.match(/(\d{1,2})\s+([a-zéû]+)\s+(\d{4})/i);
+    const frMatch = lower.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    const isoMatch = lower.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+
+    if (textDateMatch && monthsFr[textDateMatch[2]] !== undefined) {
+      const d = new Date(
+        parseInt(textDateMatch[3], 10),
+        monthsFr[textDateMatch[2]],
+        parseInt(textDateMatch[1], 10),
+      );
+      if (!isNaN(d.getTime()) && d > now) {
+        weeksRemaining = Math.max(
+          1,
+          Math.round((d.getTime() - now.getTime()) / (7 * 24 * 3600 * 1000)),
+        );
+        raceDate = d.toLocaleDateString("fr-FR", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        });
+      }
+    } else if (frMatch) {
+      const d = new Date(
+        parseInt(frMatch[3], 10),
+        parseInt(frMatch[2], 10) - 1,
+        parseInt(frMatch[1], 10),
+      );
+      if (!isNaN(d.getTime()) && d > now) {
+        weeksRemaining = Math.max(
+          1,
+          Math.round((d.getTime() - now.getTime()) / (7 * 24 * 3600 * 1000)),
+        );
+        raceDate = d.toLocaleDateString("fr-FR", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        });
+      }
+    } else if (isoMatch) {
+      const d = new Date(
+        parseInt(isoMatch[1], 10),
+        parseInt(isoMatch[2], 10) - 1,
+        parseInt(isoMatch[3], 10),
+      );
+      if (!isNaN(d.getTime()) && d > now) {
+        weeksRemaining = Math.max(
+          1,
+          Math.round((d.getTime() - now.getTime()) / (7 * 24 * 3600 * 1000)),
+        );
+        raceDate = d.toLocaleDateString("fr-FR", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        });
+      }
+    } else {
+      const monthsMatch = lower.match(/(\d+)\s*mois/i);
+      const weeksMatch = lower.match(/(\d+)\s*semaine/i);
+      if (weeksMatch) {
+        weeksRemaining = parseInt(weeksMatch[1], 10);
+        raceDate = `Dans ${weeksRemaining} semaines`;
+      } else if (monthsMatch) {
+        weeksRemaining = parseInt(monthsMatch[1], 10) * 4;
+        raceDate = `Dans ${weeksRemaining} semaines`;
+      }
     }
 
     return {
       title,
       target,
-      raceDate: `Dans ${weeksRemaining} semaines`,
+      raceDate,
       weeksRemaining,
       distanceKm,
     };

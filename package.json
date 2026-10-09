@@ -15,7 +15,9 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "ts-node prisma/seed.ts",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "db:clean": "ts-node prisma/clean.ts",
+    "db:wipe": "ts-node prisma/clean.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",

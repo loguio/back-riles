@@ -66,8 +66,19 @@ export class CoachService {
       },
     });
 
-    // 2. Context Builder (RAG ciblé) : récupération du profil, règles de vie, séances récentes (allure + FC), séance active et dernier RPE
-    const [user, activeWorkout, recentWorkouts, currentWeekWorkouts, lastRpe] =
+    const today = new Date();
+    const todayDateKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const sevenDaysAgoDateKey = `${sevenDaysAgo.getFullYear()}-${String(sevenDaysAgo.getMonth() + 1).padStart(2, "0")}-${String(sevenDaysAgo.getDate()).padStart(2, "0")}`;
+
+    const sevenDaysAhead = new Date(today);
+    sevenDaysAhead.setDate(sevenDaysAhead.getDate() + 7);
+    const sevenDaysAheadDateKey = `${sevenDaysAhead.getFullYear()}-${String(sevenDaysAhead.getMonth() + 1).padStart(2, "0")}-${String(sevenDaysAhead.getDate()).padStart(2, "0")}`;
+
+    // 2. Context Builder (RAG ciblé) : profil anonyme, règles de vie, fenêtre glissante -7j/+7j
+    const [user, activeWorkout, recentWorkoutsRaw, upcomingWorkouts, lastRpe] =
       await Promise.all([
         this.prisma.user.findUnique({
           where: { id: userId },
@@ -79,30 +90,50 @@ export class CoachService {
         this.prisma.workout.findFirst({
           where: {
             userId,
-            status: WorkoutStatus.SELECTED,
+            OR: [
+              { dateKey: todayDateKey },
+              { status: WorkoutStatus.SELECTED },
+            ],
           },
         }),
         this.prisma.workout.findMany({
           where: {
             userId,
             isRestDay: false,
-            status: { in: [WorkoutStatus.DONE, WorkoutStatus.SELECTED] },
+            dateKey: { gte: sevenDaysAgoDateKey, lte: todayDateKey },
+            status: WorkoutStatus.DONE,
           },
           orderBy: { dateKey: "desc" },
-          take: 25,
+          take: 7,
         }),
         this.prisma.workout.findMany({
           where: {
             userId,
-            weekNumber: 42,
+            dateKey: { gt: todayDateKey, lte: sevenDaysAheadDateKey },
           },
           orderBy: { dateKey: "asc" },
+          take: 7,
         }),
         this.prisma.rpeCheckIn.findFirst({
           where: { userId },
           orderBy: { submittedAt: "desc" },
         }),
       ]);
+
+    // Fallback : si aucune séance faite dans les 7 derniers jours (ex: coupure ou reprise),
+    // on récupère les 2 dernières séances terminées pour que l'IA connaisse le passé récent
+    let recentWorkouts = recentWorkoutsRaw;
+    if (recentWorkouts.length === 0) {
+      recentWorkouts = await this.prisma.workout.findMany({
+        where: {
+          userId,
+          isRestDay: false,
+          status: WorkoutStatus.DONE,
+        },
+        orderBy: { dateKey: "desc" },
+        take: 3,
+      });
+    }
 
     const stravaToken = user?.syncTokens?.find((t) => t.provider === "strava");
     const sixMonthsSummary = (stravaToken?.metadata as any)?.sixMonthsSummary;
@@ -124,7 +155,7 @@ export class CoachService {
       recentWorkouts.some((w) => w.status === WorkoutStatus.DONE);
 
     const athleteContext = {
-      userName: user?.name || "Marius",
+      userName: "l'athlète", // 100% anonymisé (pas de prénom personnel envoyé au LLM)
       readinessScore: dto.context?.readinessScore ?? user?.readinessScore ?? 88,
       activeGoalTitle: user?.activeGoalTitle || "Semi-marathon de Paris",
       activeGoalTarget: user?.activeGoalTarget || "Passer sous les 2h",
@@ -152,7 +183,6 @@ export class CoachService {
         activeWeeks: sixMonthsSummary?.activeWeeks ?? user?.activeWeeks ?? 25,
         hrMax: sixMonthsSummary?.maxHeartRateObserved,
         recentSessions,
-        sixMonthsSummary,
       },
       activeWorkout: activeWorkout
         ? {
@@ -168,7 +198,31 @@ export class CoachService {
         : dto.context?.activeSessionTitle
           ? { title: dto.context.activeSessionTitle }
           : undefined,
-      currentWeekWorkouts: currentWeekWorkouts.map((w) => ({
+      todayDate: todayDateKey,
+      pastCompletedWorkouts: recentWorkouts.map((w) => ({
+        id: w.id,
+        dateKey: w.dateKey,
+        title: w.title,
+        duration: w.duration,
+        distance: w.distance,
+        actualDistanceKm: w.actualDistanceKm,
+        actualPace: w.actualPace,
+        actualAvgHeartRate: w.actualAvgHeartRate,
+        sourceProvider: w.sourceProvider,
+        completedAt: w.completedAt,
+      })),
+      upcomingPlannedWorkouts: upcomingWorkouts.map((w) => ({
+        id: w.id,
+        dateKey: w.dateKey,
+        dayName: w.dayName,
+        title: w.title,
+        duration: w.duration,
+        distance: w.distance,
+        targetPace: w.targetPace,
+        category: w.category,
+        isRestDay: w.isRestDay,
+      })),
+      currentWeekWorkouts: upcomingWorkouts.map((w) => ({
         id: w.id,
         dateKey: w.dateKey,
         dayName: w.dayName,
@@ -198,24 +252,31 @@ export class CoachService {
       athleteContext,
     });
 
-    // Si l'utilisateur a exprimé une nouvelle règle de vie dans son message, l'IA la reformule et l'enregistre automatiquement
+    // Si l'utilisateur a exprimé une nouvelle règle de vie dans son message, l'IA la reformule et l'enregistre automatiquement avec vérification anti-doublon stricte
     let autoAppliedRule = false;
     if (
       llmReply.suggestedAction?.type === "add_life_rule" &&
       llmReply.suggestedAction.ruleData
     ) {
       const ruleData = llmReply.suggestedAction.ruleData;
-      const alreadyExists = (user?.rules || []).some(
-        (r) =>
-          r.title.toLowerCase() === ruleData.title.toLowerCase() &&
-          r.description.toLowerCase() === ruleData.description.toLowerCase(),
-      );
-      if (!alreadyExists && user) {
+      const cleanTitle = (ruleData.title || "").trim().toLowerCase();
+      const cleanDesc = (ruleData.description || "").trim().toLowerCase();
+      const alreadyExists = (user?.rules || []).some((r) => {
+        const rTitle = (r.title || "").trim().toLowerCase();
+        const rDesc = (r.description || "").trim().toLowerCase();
+        return (
+          rTitle === cleanTitle ||
+          rDesc === cleanDesc ||
+          (cleanTitle.length > 3 && rTitle.includes(cleanTitle)) ||
+          (cleanDesc.length > 5 && rDesc.includes(cleanDesc))
+        );
+      });
+      if (!alreadyExists && user && cleanTitle.length > 0) {
         await this.prisma.lifeRule.create({
           data: {
             userId,
-            title: ruleData.title,
-            description: ruleData.description,
+            title: ruleData.title.trim(),
+            description: ruleData.description.trim(),
             icon: ruleData.icon || "calendar-lock",
           },
         });

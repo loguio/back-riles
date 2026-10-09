@@ -21,36 +21,69 @@ export class WorkoutsService {
     private readonly llmService: LlmService,
   ) {}
 
+  public getIsoWeekNumber(d: Date): number {
+    const target = new Date(
+      Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()),
+    );
+    const dayNr = target.getUTCDay() || 7;
+    target.setUTCDate(target.getUTCDate() + 4 - dayNr);
+    const jan1 = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+    return Math.ceil(
+      ((target.getTime() - jan1.getTime()) / 86400000 + 1) / 7,
+    );
+  }
+
+  private getMondayOfWeek(year: number, week: number): Date {
+    const jan4 = new Date(Date.UTC(year, 0, 4));
+    const dayOfWeek = jan4.getUTCDay() || 7;
+    const firstMonday = new Date(Date.UTC(year, 0, 4 - (dayOfWeek - 1)));
+    return new Date(firstMonday.getTime() + (week - 1) * 7 * 24 * 3600 * 1000);
+  }
+
   async getWeekWorkouts(
     userId: string,
-    weekNumber = 42,
-    year = 2026,
+    weekNumber?: number,
+    year?: number,
   ): Promise<WorkoutSessionDto[]> {
+    const now = new Date();
+    const effectiveYear = year ? Number(year) : now.getFullYear();
+    const effectiveWeek = weekNumber
+      ? Number(weekNumber)
+      : this.getIsoWeekNumber(now);
+
     let workouts = await this.prisma.workout.findMany({
       where: {
         userId,
-        weekNumber: Number(weekNumber),
-        year: Number(year),
+        weekNumber: effectiveWeek,
+        year: effectiveYear,
       },
       orderBy: { dateKey: "asc" },
     });
 
-    // Uniquement pour l'initialisation du compte de démo sur la semaine courante (42) si la base est totalement vide.
-    // Aucune séance n'est générée à la volée lorsqu'on navigue sur d'autres semaines dans le calendrier.
-    if (workouts.length === 0 && Number(weekNumber) === 42 && Number(year) === 2026) {
-      const totalUserWorkouts = await this.prisma.workout.count({
-        where: { userId },
+    if (workouts.length === 0) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { isOnboardingCompleted: true },
       });
-      if (totalUserWorkouts === 0) {
-        await this.provisionDefaultWeekWorkouts(userId, 42, 2026);
-        workouts = await this.prisma.workout.findMany({
-          where: {
-            userId,
-            weekNumber: 42,
-            year: 2026,
-          },
-          orderBy: { dateKey: "asc" },
+      if (user?.isOnboardingCompleted) {
+        const totalUserWorkouts = await this.prisma.workout.count({
+          where: { userId },
         });
+        if (totalUserWorkouts === 0) {
+          await this.provisionDefaultWeekWorkouts(
+            userId,
+            effectiveWeek,
+            effectiveYear,
+          );
+          workouts = await this.prisma.workout.findMany({
+            where: {
+              userId,
+              weekNumber: effectiveWeek,
+              year: effectiveYear,
+            },
+            orderBy: { dateKey: "asc" },
+          });
+        }
       }
     }
 
@@ -59,34 +92,21 @@ export class WorkoutsService {
 
   async getMonthWorkouts(
     userId: string,
-    month = 9,
-    year = 2026,
+    month?: number,
+    year?: number,
   ): Promise<Record<string, WorkoutSessionDto>> {
+    const now = new Date();
+    const effectiveMonth = month !== undefined ? Number(month) : now.getMonth();
+    const effectiveYear = year !== undefined ? Number(year) : now.getFullYear();
+
     let workouts = await this.prisma.workout.findMany({
       where: {
         userId,
-        month: Number(month),
-        year: Number(year),
+        month: effectiveMonth,
+        year: effectiveYear,
       },
       orderBy: { dateKey: "asc" },
     });
-
-    if (workouts.length === 0 && Number(month) === 9 && Number(year) === 2026) {
-      const totalUserWorkouts = await this.prisma.workout.count({
-        where: { userId },
-      });
-      if (totalUserWorkouts === 0) {
-        await this.provisionDefaultWeekWorkouts(userId, 42, 2026);
-        workouts = await this.prisma.workout.findMany({
-          where: {
-            userId,
-            month: 9,
-            year: 2026,
-          },
-          orderBy: { dateKey: "asc" },
-        });
-      }
-    }
 
     const result: Record<string, WorkoutSessionDto> = {};
     for (const w of workouts) {
@@ -107,6 +127,69 @@ export class WorkoutsService {
     });
 
     if (!workout) {
+      // Si c'est un format de date YYYY-MM-DD, renvoyer un créneau de repos propre plutôt qu'une erreur 404
+      if (/^\d{4}-\d{2}-\d{2}$/.test(identifier)) {
+        const [y, m, d] = identifier.split("-").map(Number);
+        const dateObj = new Date(Date.UTC(y, m - 1, d));
+        const dayNamesShort = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
+        const dayNamesFull = [
+          "DIMANCHE",
+          "LUNDI",
+          "MARDI",
+          "MERCREDI",
+          "JEUDI",
+          "VENDREDI",
+          "SAMEDI",
+        ];
+        const monthNamesFull = [
+          "JANVIER",
+          "FÉVRIER",
+          "MARS",
+          "AVRIL",
+          "MAI",
+          "JUIN",
+          "JUILLET",
+          "AOÛT",
+          "SEPTEMBRE",
+          "OCTOBRE",
+          "NOVEMBRE",
+          "DÉCEMBRE",
+        ];
+        const dow = dateObj.getUTCDay();
+        const weekNum = this.getIsoWeekNumber(dateObj);
+        return {
+          id: `rest-${identifier}`,
+          dateKey: identifier,
+          dayName: dayNamesShort[dow],
+          dayNumber: d,
+          month: m - 1,
+          year: y,
+          weekNumber: weekNum,
+          fullDateLabel: `${dayNamesFull[dow]} ${d} ${monthNamesFull[m - 1]}`,
+          timeLabel: "Jour de repos",
+          status: "rest",
+          isRestDay: true,
+          category: "RÉCUPÉRATION PASSIVE",
+          title: "Aucune séance programmée",
+          duration: "—",
+          distance: "0 km",
+          targetPace: "—",
+          targetZoneLabel: "Zone 1",
+          targetZoneBpm: "< 110 bpm",
+          targetZoneSegments: [{ color: "#93C5FD", flex: 1 }],
+          pinPositionPercent: 10,
+          effortBlocks: [
+            {
+              title: "Repos",
+              durationLabel: "Journée",
+              type: "recovery",
+              flexRatio: 1,
+            },
+          ],
+          tags: ["Repos", "Assimilation"],
+          aiAdjustmentNote: "Aucune séance spécifique prévue ce jour-là.",
+        };
+      }
       throw new NotFoundException(`Workout ${identifier} not found`);
     }
 
@@ -329,9 +412,10 @@ export class WorkoutsService {
     userId: string,
     dto: GenerateMultiWeekPlanRequestDto,
   ): Promise<GenerateMultiWeekPlanResponseDto> {
-    const startWeek = dto.startWeekNumber ?? 42;
-    const year = dto.year ?? 2026;
-    const weeksToGenerate = Math.min(Math.max(dto.weeksToGenerate ?? 4, 1), 12);
+    const now = new Date();
+    const startWeek = dto.startWeekNumber ?? this.getIsoWeekNumber(now);
+    const year = dto.year ?? now.getFullYear();
+    const weeksToGenerate = Math.max(dto.weeksToGenerate ?? 12, 1);
 
     // S'assurer que l'utilisateur existe et récupérer son contexte complet
     let user = await this.prisma.user.findUnique({
@@ -340,7 +424,7 @@ export class WorkoutsService {
     });
 
     if (!user) {
-      await this.provisionDefaultWeekWorkouts(userId, 42, year);
+      await this.provisionDefaultWeekWorkouts(userId, startWeek, year);
       user = await this.prisma.user.findUnique({
         where: { id: userId },
         include: { rules: true, syncTokens: true },
@@ -393,8 +477,7 @@ export class WorkoutsService {
     });
 
     // Construction des créneaux calendaires pour les N semaines demandées
-    // La semaine 42 commence le Lundi 12 Octobre 2026
-    const baseMonday = new Date(Date.UTC(year, 9, 12 + (startWeek - 42) * 7));
+    const baseMonday = this.getMondayOfWeek(year, startWeek);
     const dayNamesShort = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
     const dayNamesFull = [
       "DIMANCHE",
@@ -509,10 +592,11 @@ export class WorkoutsService {
         continue; // On conserve précieusement les vraies séances passées (Strava 6 mois)
       }
 
-      const isTodayDefault = item.dateKey === "2026-10-14";
+      const todayDateKey = new Date().toISOString().split("T")[0];
+      const isToday = item.dateKey === todayDateKey;
       const status = item.isRestDay
         ? WorkoutStatus.REST
-        : isTodayDefault
+        : isToday
           ? WorkoutStatus.SELECTED
           : WorkoutStatus.UPCOMING;
 

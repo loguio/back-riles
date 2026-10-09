@@ -244,6 +244,30 @@ export interface LlmCoachReplyInput {
     selectedSports?: string[];
     rules?: Array<{ id?: string; title: string; description: string; icon: string }>;
     trainingContext?: AthleteTrainingContextDto;
+    todayDate?: string;
+    pastCompletedWorkouts?: Array<{
+      id?: string;
+      dateKey: string;
+      title: string;
+      duration?: string;
+      distance?: string;
+      actualDistanceKm?: number | null;
+      actualPace?: string | null;
+      actualAvgHeartRate?: number | null;
+      sourceProvider?: string | null;
+      completedAt?: Date | string | null;
+    }>;
+    upcomingPlannedWorkouts?: Array<{
+      id?: string;
+      dateKey: string;
+      dayName?: string;
+      title: string;
+      duration: string;
+      distance: string;
+      targetPace?: string;
+      category?: string;
+      isRestDay?: boolean;
+    }>;
     activeWorkout?: {
       id?: string;
       dateKey?: string;

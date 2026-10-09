@@ -263,11 +263,11 @@ export class WebhooksService {
       skipDuplicates: true,
     });
 
-    // Mise à jour explicite des séances réalisées de la semaine courante (Semaine 42 : Lun 12 & Mar 13 Oct)
-    const currentWeekDone = workoutsToPersist.filter(
-      (w) => w.weekNumber === 42 && w.status === WorkoutStatus.DONE,
+    // Mise à jour explicite de toutes les séances réalisées de l'historique Strava (notamment aujourd'hui et les dernières semaines)
+    const recentDone = workoutsToPersist.filter(
+      (w) => w.status === WorkoutStatus.DONE,
     );
-    for (const cw of currentWeekDone) {
+    for (const cw of recentDone) {
       await this.prisma.workout.upsert({
         where: { userId_dateKey: { userId, dateKey: cw.dateKey } },
         update: {
@@ -768,13 +768,14 @@ export class WebhooksService {
         continue;
       }
 
-      // Calcul du numéro de semaine ISO aligné sur le calendrier 2026 (Lundi 12 Oct 2026 = Semaine 42)
-      const refMondayW42 = Date.UTC(2026, 9, 12);
-      const currentMidnight = Date.UTC(yyyy, mm, dd);
-      const diffDays = Math.floor(
-        (currentMidnight - refMondayW42) / (24 * 3600 * 1000),
+      // Calcul du numéro de semaine ISO réel
+      const targetDate = new Date(Date.UTC(yyyy, mm, dd));
+      const dayNr = targetDate.getUTCDay() || 7;
+      targetDate.setUTCDate(targetDate.getUTCDate() + 4 - dayNr);
+      const jan1 = new Date(Date.UTC(targetDate.getUTCFullYear(), 0, 1));
+      const weekNumber = Math.ceil(
+        ((targetDate.getTime() - jan1.getTime()) / 86400000 + 1) / 7,
       );
-      const weekNumber = 42 + Math.floor(diffDays / 7);
 
       const actualDistanceKm = Number((distMeters / 1000).toFixed(2));
       const actualPace = isRun
