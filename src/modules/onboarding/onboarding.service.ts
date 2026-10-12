@@ -369,7 +369,7 @@ export class OnboardingService {
     }
 
     // Détermination dynamique de la date d'objectif et de la durée du plan :
-    // - Si pas de date précisée : plan par défaut sur 3 mois (12 semaines)
+    // - Si pas de date précisée : plan par défaut sur 4 mois (16 semaines)
     // - Si date précisée : plan jusqu'à la date d'objectif prévue
     const now = new Date();
     const currentWeekNumber = this.workoutsService.getIsoWeekNumber(now);
@@ -395,8 +395,8 @@ export class OnboardingService {
       });
       dataToUpdate.activeGoalWeeksRemaining = weeksToGenerate;
     } else {
-      dataToUpdate.activeGoalRaceDate = "Dans 12 semaines (3 mois)";
-      dataToUpdate.activeGoalWeeksRemaining = 12;
+      dataToUpdate.activeGoalRaceDate = "Dans 16 semaines (4 mois)";
+      dataToUpdate.activeGoalWeeksRemaining = 16;
     }
 
     if (dto?.selectedSports) {
@@ -437,10 +437,11 @@ export class OnboardingService {
 
     // Construction du résumé structuré semaine par semaine
     const byWeek = new Map<
-      number,
+      string,
       {
         weekNumber: number;
         relativeWeek: number;
+        firstDateKey: string;
         phaseName: string;
         weekType: string;
         estimatedKm: number;
@@ -452,9 +453,12 @@ export class OnboardingService {
 
     for (const w of planResult.workouts) {
       const wk = w.weekNumber ?? currentWeekNumber;
-      const entry = byWeek.get(wk) || {
+      const weekYear = w.year ?? currentYear;
+      const weekKey = `${weekYear}-W${String(wk).padStart(2, "0")}`;
+      const entry = byWeek.get(weekKey) || {
         weekNumber: wk,
         relativeWeek: 1,
+        firstDateKey: w.dateKey,
         phaseName: "Phase 1 : Socle Aérobie",
         weekType: "Endurance & Volume",
         estimatedKm: 0,
@@ -473,11 +477,11 @@ export class OnboardingService {
           ) || 0;
         entry.estimatedKm += distNum;
       }
-      byWeek.set(wk, entry);
+      byWeek.set(weekKey, entry);
     }
 
     const sortedWeeks = Array.from(byWeek.values()).sort(
-      (a, b) => a.weekNumber - b.weekNumber,
+      (a, b) => a.firstDateKey.localeCompare(b.firstDateKey),
     );
 
     sortedWeeks.forEach((item, index) => {
@@ -572,13 +576,20 @@ export class OnboardingService {
     if (weeksMatch) return weeksMatch[0];
     const monthsMatch = text.match(/\b\d+\s*mois\b/i);
     if (monthsMatch) return monthsMatch[0];
+
+    // Détection d'un mois cible seul, ex: "pour février", "en février", "février"
+    const singleMonthMatch = text.match(
+      /\b(?:pour|en|début|mi|fin)?\s*(janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)\b/i,
+    );
+    if (singleMonthMatch) return singleMonthMatch[0];
+
     return undefined;
   }
 
   public parseTargetRaceDate(
     dateStr?: string,
   ): { targetDate: Date | null; weeks: number } {
-    const defaultWeeks = 12; // 3 mois par défaut si pas de date d'objectif
+    const defaultWeeks = 16; // 4 mois par défaut si pas de date d'objectif
     if (!dateStr || !dateStr.trim()) {
       return { targetDate: null, weeks: defaultWeeks };
     }
@@ -620,7 +631,7 @@ export class OnboardingService {
       }
     }
 
-    // 3. Mois en français dans le texte, ex: "18 mai 2027", "12 octobre 2026"
+    // 3. Mois en français dans le texte complet, ex: "18 mai 2027", "12 octobre 2026"
     const monthsFr: Record<string, number> = {
       janvier: 0,
       février: 1,
@@ -675,6 +686,26 @@ export class OnboardingService {
       }
     }
 
+    // 5. Mention d'un mois seul, ex: "pour février", "en février", "février"
+    const lower = trimmed.toLowerCase();
+    for (const [mName, mIdx] of Object.entries(monthsFr)) {
+      if (lower.includes(mName)) {
+        let targetYear = now.getFullYear();
+        // Si le mois demandé est passé ou en cours cette année (ex: février alors qu'on est en octobre), c'est l'année suivante
+        if (mIdx <= now.getMonth()) {
+          targetYear += 1;
+        }
+        // Par défaut, cible au 3ème dimanche de ce mois (les marathons ont lieu le dimanche)
+        const targetDay = 21;
+        const d = new Date(targetYear, mIdx, targetDay);
+        const weeks = Math.max(
+          4,
+          Math.round((d.getTime() - now.getTime()) / (7 * 24 * 3600 * 1000)),
+        );
+        return { targetDate: d, weeks };
+      }
+    }
+
     return { targetDate: null, weeks: defaultWeeks };
   }
 
@@ -694,17 +725,20 @@ export class OnboardingService {
     const p2End = Math.max(p1End + 1, Math.round(w * 0.65));
     const p3End = Math.max(p2End + 1, Math.max(p2End + 1, w - 2));
 
-    const km1 = Math.round(baseWeeklyKm * 0.95);
-    const km2 = Math.round(baseWeeklyKm * 1.15);
-    const km3 = Math.round(baseWeeklyKm * 1.3);
-    const km4 = Math.round(baseWeeklyKm * 0.75);
+    // Démarrage calme et progressif basé sur son socle actuel (ex: 80% du volume récent)
+    const startKm = Math.max(18, Math.round(baseWeeklyKm * 0.82));
+    const peakKm = Math.max(44, Math.round(baseWeeklyKm * 1.55));
+    const km1 = Math.round(startKm * 1.08); // Phase 1 : Socle aérobie progressif
+    const km2 = Math.round(startKm * 1.32); // Phase 2 : Seuil et montée de charge
+    const km3 = Math.round(peakKm * 0.96);  // Phase 3 : Pic spécifique
+    const km4 = Math.round(startKm * 0.72); // Phase 4 : Affûtage & fraîcheur
 
     return [
       {
         name: "Phase 1 : Socle & Volume Aérobie",
         weeksRangeLabel: `Semaines 1 à ${p1End}`,
         focus:
-          "Développement de l'aisance respiratoire en Zone 2, renforcement musculaire et régularité.",
+          "Démarrage tranquille et progressif en Zone 2, renforcement et habitude d'entraînement sans surcharge.",
         weekType: "Endurance & Socle",
         avgKm: km1,
         sessionsPerWeek: 3,
@@ -713,16 +747,16 @@ export class OnboardingService {
         name: "Phase 2 : Développement Seuil & Allure Cible",
         weeksRangeLabel: `Semaines ${p1End + 1} à ${p2End}`,
         focus:
-          "Fractions au seuil anaérobie (Z4), maintien de l'allure cible et montée en charge.",
+          "Progression continue (+10 %/semaine), fractions au seuil anaérobie (Z4) et cycles d'assimilation.",
         weekType: "Seuil & Tempo",
         avgKm: km2,
-        sessionsPerWeek: 3,
+        sessionsPerWeek: 4,
       },
       {
         name: "Phase 3 : Pic Spécifique & Sorties Clés",
         weeksRangeLabel: `Semaines ${p2End + 1} à ${p3End}`,
         focus:
-          "Séances d'allure spécifique course, plus longue sortie de la préparation et assimilation.",
+          "Volume maximal, sorties longues clés et maintien de l'allure cible marathon.",
         weekType: "Pic Spécifique",
         avgKm: km3,
         sessionsPerWeek: 4,
@@ -732,10 +766,10 @@ export class OnboardingService {
         weeksRangeLabel:
           p3End < w ? `Semaines ${p3End + 1} à ${w}` : `Semaine ${w}`,
         focus:
-          "Baisse progressive du volume (-40 %), conservation de l'intensité et fraîcheur avant l'épreuve.",
+          "Baisse progressive du volume (-40 %), conservation de l'intensité et fraîcheur maximale le jour J.",
         weekType: "Affûtage",
         avgKm: km4,
-        sessionsPerWeek: 2,
+        sessionsPerWeek: 3,
       },
     ];
   }

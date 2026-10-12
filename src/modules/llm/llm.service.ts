@@ -483,8 +483,8 @@ Réponds UNIQUEMENT avec un objet JSON valide au format suivant :
   "extractedGoal": {
     "title": "string (ex: Semi-marathon de Paris)",
     "target": "string (ex: Passer sous 1h45)",
-    "raceDate": "string (ex: Dans 12 semaines)",
-    "weeksRemaining": number
+    "raceDate": "string (ex: Dans 16 semaines ou date mentionnée)",
+    "weeksRemaining": number (16 si non précisé par l'utilisateur, ou nombre de semaines exact jusqu'à la date d'épreuve)
   },
   "extractedRules": [
     { "title": "string", "description": "string", "icon": "calendar-lock | clock-outline | bullseye-arrow | sleep" }
@@ -939,11 +939,16 @@ RÈGLES ABSOLUES DE CONSTRUCTION DU PLAN :
    - Allure Marathon / Tempo (Zone 3) : ${paces.marathonPaceZ3} (150–160 bpm)
    - Allure Seuil Anaérobie (Zone 4) : ${paces.thresholdPaceZ4} (162–174 bpm)
    - Allure VMA / Intervalle (Zone 5) : ${paces.intervalPaceZ5} (176–188 bpm)
-3. CALIBRATION SUR LES 6 DERNIERS MOIS STRAVA & PROGRESSIVITÉ SCIENTIFIQUE :
-   - Bilan 6 mois Strava : ${strava6m ? `${strava6m.totalActivities} séances, ${strava6m.totalDistanceKm} km cumulés, moyenne 4 dernières semaines = ${strava6m.recent4WeeksAvgKm} km/sem, plus longue sortie = ${strava6m.longestRunKm} km` : `Volume hebdo récent = ${input.physiologicalState?.recentWeeklyKm || 35} km/sem`}.
-   - Ne dépasse jamais +10 % d'augmentation de volume hebdomadaire d'une semaine à l'autre par rapport au volume récent Strava.
-   - Alterne judicieusement séances d'endurance fondamentale (80 % du volume), séance qualitative au seuil/VMA, renforcement/mobilité et sortie longue le week-end.
-   - Tiens compte de sa fatigue actuelle (ATL=${input.physiologicalState.atlFatigue}, CTL=${input.physiologicalState.ctlFitness}, TSB=${input.physiologicalState.tsbForm}, Readiness=${input.physiologicalState.readinessScore}%).
+3. RÈGLES SCIENTIFIQUES DE CHARGE & PROGRESSIVITÉ DYNAMIQUE DU PLAN :
+   - Bilan 6 mois Strava : ${strava6m ? `${strava6m.totalActivities} séances, ${strava6m.totalDistanceKm} km cumulés, moyenne 4 dernières semaines = ${strava6m.recent4WeeksAvgKm} km/sem, plus longue sortie = ${strava6m.longestRunKm} km` : `Volume hebdo récent = ${input.physiologicalState?.recentWeeklyKm || 30} km/sem`}.
+   - DÉMARRAGE ADAPTÉ & TRANQUILLE (SEMAINE 1) : Ne jamais démarrer brutalement à un volume écrasant. Calibre la Semaine 1 à environ 80-85% du volume récent réel de l'athlète (ex: s'il a l'habitude de courir 25 km/semaine, démarre la semaine 1 autour de 20-24 km ; on ne passe jamais de 0 à 30+ km d'entrée de jeu).
+   - RÈGLE DES 10 % PAR SEMAINE (SURCHARGE PROGRESSIVE) : Chaque semaine de montée en charge, augmente le volume d'environ +8 % à +12 % (règle des ~10 %). La progression doit être dynamique et évolutive semaine après semaine. Ne stagne JAMAIS sur le même volume pendant 3 semaines !
+   - CYCLES 3:1 (CHARGE & ASSIMILATION) :
+     * 3 semaines de montée continue (+10 % par semaine)
+     * 1 semaine d'assimilation (deload) avec une réduction de -20 % à -25 % du volume pour assimiler les adaptations physiologiques et surcompenser.
+     * DÈS LA SEMAINE SUIVANTE (reprise de cycle), on repart à un palier PLUS ÉLEVÉ que le précédent cycle (+10 % par rapport à la S3 du cycle précédent). Il doit y avoir une vraie progression par paliers ascendants !
+   - SORTIE LONGUE ÉVOLUTIVE : La sortie longue du week-end progresse en harmonie avec le volume hebdomadaire sans dépasser 35-38 % du volume de la semaine.
+   - PIC SPÉCIFIQUE & AFFÛTAGE : Le volume culmine 3 à 4 semaines avant l'échéance (pic spécifique marathon), suivi d'une phase d'affûtage décroissante les 2 dernières semaines (-25 % puis -45 %) pour arriver avec une fraîcheur et une réserve glycogénique maximales le jour de la course.
 
 CONTEXTE COMPLET DE L'ATHLÈTE (INCLUANT 6 MOIS DE DONNÉES STRAVA) :
 ${JSON.stringify({
@@ -1163,28 +1168,99 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
   } {
     const easySinglePace = paces.easyPaceZ2.split("–")[0]?.trim() || "5:45/km";
     const slots: any[] = input.calendarSlots || [];
-    const distinctWeeks = Array.from(new Set(slots.map((s) => s.weekNumber)));
+
+    // Indexation chronologique des semaines uniques (gère l'enjambement d'années)
+    const distinctWeekMap = new Map<string, number>();
+    slots.forEach((s) => {
+      const key = `${s.year}-${s.weekNumber}`;
+      if (!distinctWeekMap.has(key)) {
+        distinctWeekMap.set(key, distinctWeekMap.size);
+      }
+    });
+    const totalWeeks = Math.max(1, distinctWeekMap.size);
+
+    const baseRecentKm =
+      input.sixMonthsStravaSummary?.recent4WeeksAvgKm ||
+      input.physiologicalState?.recentWeeklyKm ||
+      28;
+    // Démarrage adapté et progressif : ~80-85% du volume habituel pour commencer en douceur
+    // Si habitué à 25-30 km, on démarre à ~22-24 km (pas à 40 km d'entrée de jeu, ni à un niveau ridicule)
+    const startWeeklyKm = Math.max(18, Math.min(30, Math.round(baseRecentKm * 0.82)));
+
+    // Modèle physiologique de périodisation 3:1 avec règle des 10 %
+    const computeWeekMetrics = (wIdx: number) => {
+      const isTapering = wIdx >= totalWeeks - 2 && totalWeeks >= 8;
+      if (isTapering) {
+        const peakCycleIdx = Math.floor((totalWeeks - 3) / 4);
+        const peakVolume = Math.round(startWeeklyKm * Math.pow(1.15, peakCycleIdx) * 1.21);
+        const taperRatio = wIdx === totalWeeks - 1 ? 0.55 : 0.75;
+        return {
+          targetKm: Math.round(peakVolume * taperRatio),
+          isDeload: false,
+          isTaper: true,
+          phaseLabel: "Affûtage",
+        };
+      }
+
+      const cycleIndex = Math.floor(wIdx / 4);
+      const posInCycle = wIdx % 4; // 0, 1, 2 = montée ; 3 = deload
+
+      const cycleBase = startWeeklyKm * Math.pow(1.15, cycleIndex);
+
+      if (posInCycle === 0) {
+        return {
+          targetKm: Math.round(cycleBase),
+          isDeload: false,
+          isTaper: false,
+          phaseLabel: cycleIndex === 0 ? "Socle Aérobie" : "Développement Seuil",
+        };
+      } else if (posInCycle === 1) {
+        return {
+          targetKm: Math.round(cycleBase * 1.10), // +10%
+          isDeload: false,
+          isTaper: false,
+          phaseLabel: "Montée de Charge (+10 %)",
+        };
+      } else if (posInCycle === 2) {
+        return {
+          targetKm: Math.round(cycleBase * 1.21), // +10% supplémentaire
+          isDeload: false,
+          isTaper: false,
+          phaseLabel: "Pic de Bloc (+10 %)",
+        };
+      } else {
+        return {
+          targetKm: Math.round(cycleBase * 1.21 * 0.78), // Deload -22%
+          isDeload: true,
+          isTaper: false,
+          phaseLabel: "Assimilation (Deload -22 %)",
+        };
+      }
+    };
 
     const workouts = slots.map((slot) => {
-      const weekIndex = Math.max(0, distinctWeeks.indexOf(slot.weekNumber));
-      // Semaine d'assimilation (deload) toutes les 4 semaines, sinon progression douce +6%/sem
-      const isDeloadWeek = (weekIndex + 1) % 4 === 0;
-      const progressionFactor = isDeloadWeek ? 0.82 : 1 + weekIndex * 0.06;
+      const key = `${slot.year}-${slot.weekNumber}`;
+      const weekIndex = distinctWeekMap.get(key) || 0;
+      const { targetKm, isDeload, isTaper, phaseLabel } = computeWeekMetrics(weekIndex);
 
       if (lockedDays.has(slot.dayName)) {
         return this.normalizeGeneratedWorkout(slot, { isRestDay: true }, lockedDays, paces);
       }
 
       if (slot.dayName === "Lun") {
-        const dist = (7.0 * progressionFactor).toFixed(1).replace(".", ",");
-        const dur = Math.round(40 * progressionFactor);
+        // Footing Z2 : ~22% du volume hebdo
+        const distNum = Math.max(4.0, Number((targetKm * 0.22).toFixed(1)));
+        const dist = distNum.toFixed(1).replace(".", ",");
+        const dur = Math.round(distNum * 5.8);
         return this.normalizeGeneratedWorkout(
           slot,
           {
             timeLabel: "18:00",
             isRestDay: false,
             category: "ENDURANCE FONDAMENTALE",
-            title: `Footing Fondamental Z2 (${dist} km)`,
+            title: isDeload
+              ? `Footing Régénération Z2 (${dist} km)`
+              : `Footing Fondamental Z2 (${dist} km)`,
             duration: `${dur} min`,
             distance: `${dist} km`,
             targetPace: easySinglePace,
@@ -1192,9 +1268,10 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
             targetZoneBpm: "134–146 bpm",
             pinPositionPercent: 35,
             tags: [`${dist} km`, `Allure : ${easySinglePace}`, "Zone 2"],
-            aiAdjustmentNote:
-              "Séance aérobie calibrée sur ta fréquence cardiaque récente.",
-            tss: Math.round(38 * progressionFactor),
+            aiAdjustmentNote: isDeload
+              ? "Semaine d'assimilation : footing léger pour régénérer les fibres musculaires."
+              : `Séance aérobie calibrée sur ton socle (volume hebdo visé : ${targetKm} km).`,
+            tss: Math.round(distNum * 5.2),
           },
           lockedDays,
           paces,
@@ -1217,7 +1294,7 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
             pinPositionPercent: 25,
             tags: ["35 min", "Prévention blessure", "Zone 1"],
             aiAdjustmentNote:
-              "Renforcement ciblé pour absorber la charge sans fatigue tendineuse.",
+              "Renforcement ciblé pour absorber la montée de charge sans fatigue tendineuse.",
             tss: 22,
           },
           lockedDays,
@@ -1226,16 +1303,21 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
       }
 
       if (slot.dayName === "Mer") {
-        const reps = isDeloadWeek ? 2 : 3 + Math.min(2, Math.floor(weekIndex / 2));
-        const dist = (11.5 * progressionFactor).toFixed(1).replace(".", ",");
+        // Seuil Z4 : ~26% du volume hebdo
+        const distNum = Math.max(5.0, Number((targetKm * 0.26).toFixed(1)));
+        const dist = distNum.toFixed(1).replace(".", ",");
+        const reps = isDeload ? 2 : Math.min(4, 2 + Math.floor(weekIndex / 3));
+        const repMins = isDeload ? 6 : 8;
         return this.normalizeGeneratedWorkout(
           slot,
           {
             timeLabel: "18:30",
             isRestDay: false,
             category: "SÉANCE QUALITATIVE",
-            title: `Séance Seuil ${reps} × 8 min (${paces.thresholdPaceZ4})`,
-            duration: "1h05",
+            title: isDeload
+              ? `Rappel Seuil Allégé ${reps} × ${repMins} min (${dist} km)`
+              : `Séance Seuil ${reps} × ${repMins} min (${dist} km)`,
+            duration: `${Math.round(distNum * 5.6)} min`,
             distance: `${dist} km`,
             targetPace: paces.thresholdPaceZ4,
             targetZoneLabel: "Zone 3–4",
@@ -1246,8 +1328,10 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
               `Seuil : ${paces.thresholdPaceZ4}`,
               "Zone 3/4",
             ],
-            aiAdjustmentNote: `Séance clé calibrée sur ton seuil actuel (${paces.thresholdPaceZ4}) issu de tes dernières sorties.`,
-            tss: Math.round(68 * progressionFactor),
+            aiAdjustmentNote: isDeload
+              ? "Volume et fractions allégés pour assimiler sans accumuler de fatigue."
+              : `Séance clé au seuil (${paces.thresholdPaceZ4}) pour repousser l'acidose lactique.`,
+            tss: Math.round(distNum * 6.5),
           },
           lockedDays,
           paces,
@@ -1264,24 +1348,29 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
       }
 
       if (slot.dayName === "Ven") {
-        const dist = (9.5 * progressionFactor).toFixed(1).replace(".", ",");
+        // Allure Spécifique Marathon Z3 : ~18% du volume hebdo
+        const distNum = Math.max(4.0, Number((targetKm * 0.18).toFixed(1)));
+        const dist = distNum.toFixed(1).replace(".", ",");
         return this.normalizeGeneratedWorkout(
           slot,
           {
             timeLabel: "12:30",
             isRestDay: false,
             category: "ALLURE SPÉCIFIQUE",
-            title: `Footing Progressif & Rappels d'Allure (${paces.marathonPaceZ3})`,
-            duration: "50 min",
+            title: isTaper
+              ? `Footing d'Affûtage & Lignes Droites (${dist} km)`
+              : `Footing Progressif & Allure Cible (${dist} km)`,
+            duration: `${Math.round(distNum * 5.7)} min`,
             distance: `${dist} km`,
             targetPace: paces.marathonPaceZ3,
             targetZoneLabel: "Zone 3",
             targetZoneBpm: "150–162 bpm",
             pinPositionPercent: 56,
             tags: [`${dist} km`, `Allure : ${paces.marathonPaceZ3}`, "Zone 3"],
-            aiAdjustmentNote:
-              "Travail d'économie de course avant la sortie longue du week-end.",
-            tss: Math.round(54 * progressionFactor),
+            aiAdjustmentNote: isTaper
+              ? "Maintien du tonus neuro-musculaire sans entamer les réserves."
+              : "Travail d'économie de course à allure cible avant la sortie longue.",
+            tss: Math.round(distNum * 5.5),
           },
           lockedDays,
           paces,
@@ -1289,8 +1378,10 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
       }
 
       if (slot.dayName === "Sam") {
-        const dist = (15.0 * progressionFactor).toFixed(1).replace(".", ",");
-        const mins = Math.round(85 * progressionFactor);
+        // Sortie Longue Z2 : ~34% du volume hebdo
+        const distNum = Math.max(7.0, Number((targetKm * 0.34).toFixed(1)));
+        const dist = distNum.toFixed(1).replace(".", ",");
+        const mins = Math.round(distNum * 5.9);
         const h = Math.floor(mins / 60);
         const m = mins % 60;
         return this.normalizeGeneratedWorkout(
@@ -1299,18 +1390,20 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
             timeLabel: "09:00",
             isRestDay: false,
             category: "SORTIE LONGUE",
-            title: `Sortie Longue Endurance (${dist} km)`,
-            duration: `${h}h${String(m).padStart(2, "0")}`,
+            title: isDeload
+              ? `Sortie Longue d'Assimilation (${dist} km)`
+              : `Sortie Longue Progressive (${dist} km)`,
+            duration: h > 0 ? `${h}h${String(m).padStart(2, "0")}` : `${mins} min`,
             distance: `${dist} km`,
             targetPace: easySinglePace,
             targetZoneLabel: "Zone 2",
             targetZoneBpm: "136–150 bpm",
             pinPositionPercent: 45,
             tags: [`${dist} km`, `Endurance : ${easySinglePace}`, "Zone 2"],
-            aiAdjustmentNote: isDeloadWeek
-              ? "Semaine d'assimilation : volume réduit de 18 % pour surcompenser."
-              : "Sortie fondamentale progressive (+10 % max/semaine respecté).",
-            tss: Math.round(78 * progressionFactor),
+            aiAdjustmentNote: isDeload
+              ? "Volume réduit de ~22 % : assimilation physiologique et surcompensation."
+              : `Sortie pilier du week-end (+10 % hebdo respecté, volume cible : ${targetKm} km).`,
+            tss: Math.round(distNum * 5.8),
           },
           lockedDays,
           paces,
@@ -1339,7 +1432,7 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
       : "";
 
     return {
-      planSummary: `Plan multi-semaines (${distinctWeeks.length} semaines) généré pour « ${input.userProfile.activeGoalTitle} (${input.userProfile.activeGoalTarget}) ». ${stravaContextNote}Allures calibrées sur tes vraies séances & FC (Z2 : ${paces.easyPaceZ2}, Seuil : ${paces.thresholdPaceZ4}). ${lockedInfo}`,
+      planSummary: `Plan multi-semaines (${distinctWeekMap.size} semaines) généré pour « ${input.userProfile.activeGoalTitle} (${input.userProfile.activeGoalTarget}) ». ${stravaContextNote}Allures calibrées sur tes vraies séances & FC (Z2 : ${paces.easyPaceZ2}, Seuil : ${paces.thresholdPaceZ4}). ${lockedInfo}`,
       modelUsed: `${this.proModel}-periodized-engine`,
       workouts,
     };
@@ -1906,8 +1999,8 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
         ? "Finir sereinement sans blessure"
         : "Passer sous les 2h";
 
-    let weeksRemaining = 12;
-    let raceDate = "Dans 12 semaines (3 mois)";
+    let weeksRemaining = 16;
+    let raceDate = "Dans 16 semaines (4 mois)";
 
     const now = new Date();
     const monthsFr: Record<string, number> = {
@@ -1984,14 +2077,39 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
         });
       }
     } else {
-      const monthsMatch = lower.match(/(\d+)\s*mois/i);
-      const weeksMatch = lower.match(/(\d+)\s*semaine/i);
-      if (weeksMatch) {
-        weeksRemaining = parseInt(weeksMatch[1], 10);
-        raceDate = `Dans ${weeksRemaining} semaines`;
-      } else if (monthsMatch) {
-        weeksRemaining = parseInt(monthsMatch[1], 10) * 4;
-        raceDate = `Dans ${weeksRemaining} semaines`;
+      let matchedMonth = false;
+      for (const [mName, mIdx] of Object.entries(monthsFr)) {
+        if (lower.includes(mName)) {
+          matchedMonth = true;
+          let targetYear = now.getFullYear();
+          if (mIdx <= now.getMonth()) {
+            targetYear += 1;
+          }
+          const targetDay = 21; // Marathon ciblé le 3ème dimanche du mois
+          const d = new Date(targetYear, mIdx, targetDay);
+          weeksRemaining = Math.max(
+            4,
+            Math.round((d.getTime() - now.getTime()) / (7 * 24 * 3600 * 1000)),
+          );
+          raceDate = d.toLocaleDateString("fr-FR", {
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+          });
+          break;
+        }
+      }
+
+      if (!matchedMonth) {
+        const monthsMatch = lower.match(/(\d+)\s*mois/i);
+        const weeksMatch = lower.match(/(\d+)\s*semaine/i);
+        if (weeksMatch) {
+          weeksRemaining = parseInt(weeksMatch[1], 10);
+          raceDate = `Dans ${weeksRemaining} semaines`;
+        } else if (monthsMatch) {
+          weeksRemaining = parseInt(monthsMatch[1], 10) * 4;
+          raceDate = `Dans ${weeksRemaining} semaines`;
+        }
       }
     }
 

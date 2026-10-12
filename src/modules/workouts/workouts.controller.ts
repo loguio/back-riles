@@ -53,8 +53,12 @@ export class WorkoutsController {
   ): Promise<WorkoutSessionDto[]> {
     return this.workoutsService.getWeekWorkouts(
       userId,
-      week ? Number(week) : 42,
-      year ? Number(year) : 2026,
+      week !== undefined && week !== null && week !== ("" as any)
+        ? Number(week)
+        : 42,
+      year !== undefined && year !== null && year !== ("" as any)
+        ? Number(year)
+        : 2026,
     );
   }
 
@@ -76,8 +80,12 @@ export class WorkoutsController {
   ): Promise<Record<string, WorkoutSessionDto>> {
     return this.workoutsService.getMonthWorkouts(
       userId,
-      month ? Number(month) : 9,
-      year ? Number(year) : 2026,
+      month !== undefined && month !== null && month !== ("" as any)
+        ? Number(month)
+        : 9,
+      year !== undefined && year !== null && year !== ("" as any)
+        ? Number(year)
+        : 2026,
     );
   }
 

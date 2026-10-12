@@ -51,11 +51,18 @@ export class WorkoutsService {
       ? Number(weekNumber)
       : this.getIsoWeekNumber(now);
 
+    const monday = this.getMondayOfWeek(effectiveYear, effectiveWeek);
+    const sunday = new Date(monday.getTime() + 6 * 24 * 3600 * 1000);
+    const mondayKey = monday.toISOString().split("T")[0];
+    const sundayKey = sunday.toISOString().split("T")[0];
+
     let workouts = await this.prisma.workout.findMany({
       where: {
         userId,
-        weekNumber: effectiveWeek,
-        year: effectiveYear,
+        OR: [
+          { dateKey: { gte: mondayKey, lte: sundayKey } },
+          { weekNumber: effectiveWeek, year: effectiveYear },
+        ],
       },
       orderBy: { dateKey: "asc" },
     });
@@ -78,8 +85,10 @@ export class WorkoutsService {
           workouts = await this.prisma.workout.findMany({
             where: {
               userId,
-              weekNumber: effectiveWeek,
-              year: effectiveYear,
+              OR: [
+                { dateKey: { gte: mondayKey, lte: sundayKey } },
+                { weekNumber: effectiveWeek, year: effectiveYear },
+              ],
             },
             orderBy: { dateKey: "asc" },
           });
@@ -99,11 +108,16 @@ export class WorkoutsService {
     const effectiveMonth = month !== undefined ? Number(month) : now.getMonth();
     const effectiveYear = year !== undefined ? Number(year) : now.getFullYear();
 
+    const monthStr = String(effectiveMonth + 1).padStart(2, "0");
+    const prefix = `${effectiveYear}-${monthStr}`;
+
     let workouts = await this.prisma.workout.findMany({
       where: {
         userId,
-        month: effectiveMonth,
-        year: effectiveYear,
+        OR: [
+          { dateKey: { startsWith: prefix } },
+          { month: effectiveMonth, year: effectiveYear },
+        ],
       },
       orderBy: { dateKey: "asc" },
     });
@@ -514,16 +528,16 @@ export class WorkoutsService {
     }> = [];
 
     for (let w = 0; w < weeksToGenerate; w++) {
-      const currentWeekNum = startWeek + w;
       for (let d = 0; d < 7; d++) {
         const dateObj = new Date(
           baseMonday.getTime() + (w * 7 + d) * 24 * 3600 * 1000,
         );
         const yyyy = dateObj.getUTCFullYear();
-        const mm = dateObj.getUTCMonth(); // 0-indexed (9 = Octobre)
+        const mm = dateObj.getUTCMonth(); // 0-indexed (9 = Octobre, 10 = Novembre, etc.)
         const dd = dateObj.getUTCDate();
         const dow = dateObj.getUTCDay();
         const dateKey = `${yyyy}-${String(mm + 1).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+        const weekNumber = this.getIsoWeekNumber(dateObj);
 
         calendarDays.push({
           dateKey,
@@ -531,7 +545,7 @@ export class WorkoutsService {
           dayNumber: dd,
           month: mm,
           year: yyyy,
-          weekNumber: currentWeekNum,
+          weekNumber,
           fullDateLabel: `${dayNamesFull[dow]} ${dd} ${monthNamesFull[mm]}`,
         });
       }

@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Body,
   Query,
   Res,
@@ -48,6 +49,56 @@ export class WebhooksController {
       verifyToken,
       challenge,
     );
+  }
+
+  @Get("strava/subscription")
+  @ApiOperation({
+    summary:
+      "Consulte la souscription webhook Strava active enregistrée auprès de l'API Strava v3",
+  })
+  async getStravaSubscription() {
+    return this.webhooksService.getStravaSubscription();
+  }
+
+  @Post("strava/subscription")
+  @ApiOperation({
+    summary:
+      "Crée ou remplace la souscription webhook push auprès de Strava (nécessite une callbackUrl publique)",
+  })
+  async createStravaSubscription(
+    @Body() body: { callbackUrl: string; verifyToken?: string },
+  ) {
+    return this.webhooksService.createStravaSubscription(
+      body.callbackUrl,
+      body.verifyToken,
+    );
+  }
+
+  @Delete("strava/subscription")
+  @ApiOperation({
+    summary: "Supprime la souscription webhook push auprès de Strava",
+  })
+  async deleteStravaSubscription(@Query("id") id?: string) {
+    return this.webhooksService.deleteStravaSubscription(
+      id ? Number(id) : undefined,
+    );
+  }
+
+  @Post("strava/sync-recent")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      "Synchronisation incrémentale à la demande des activités récentes Strava (safety net / app open / pull-to-refresh)",
+  })
+  async syncRecentActivities(
+    @Body() body: { userId?: string; daysLookback?: number },
+    @Query("userId") queryUserId?: string,
+    @Query("days") queryDays?: string,
+  ) {
+    const targetUserId =
+      body?.userId || queryUserId || "f2b3a1dc-a7ef-4f76-81fa-1533ea06dbe4";
+    const days = body?.daysLookback || (queryDays ? Number(queryDays) : 7);
+    return this.webhooksService.syncRecentStravaActivities(targetUserId, days);
   }
 
   @Get("strava/oauth/url")
