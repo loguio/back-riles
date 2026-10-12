@@ -638,19 +638,24 @@ export class WorkoutsService {
       });
     }
 
-    // Si on génère un plan complet (>= 2 semaines), on ajoute un message de présentation dans le Chat Coach
-    if (weeksToGenerate >= 2 && user) {
-      await this.prisma.chatMessage.create({
-        data: {
-          userId,
-          sender: "coach",
-          text: `📋 Plan multi-semaines généré (Semaines ${startWeek} à ${startWeek + weeksToGenerate - 1}) :\n\n${llmPlan.planSummary}`,
-          timestamp: new Date().toLocaleTimeString("fr-FR", {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
-        },
+    // Si le chat est encore vierge, on place uniquement un message d'accueil simple et naturel
+    if (user) {
+      const existingCount = await this.prisma.chatMessage.count({
+        where: { userId },
       });
+      if (existingCount === 0) {
+        await this.prisma.chatMessage.create({
+          data: {
+            userId,
+            sender: "coach",
+            text: "Salut ! Je suis ton coach IA. Dis-moi si tu as une question sur une séance, tes sensations ou si tu souhaites adapter ton planning.",
+            timestamp: new Date().toLocaleTimeString("fr-FR", {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+          },
+        });
+      }
     }
 
     this.dataLakeService.logTrainingInteraction({
@@ -743,6 +748,393 @@ export class WorkoutsService {
       sportType: w.sportType || "running",
       isCommute: w.isCommute ?? false,
       secondaryActivities: w.secondaryActivities ?? undefined,
+    };
+  }
+
+  async getPlanRoadmap(userId: string): Promise<any> {
+    const now = new Date();
+    const todayDateKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const currentWeekNumber = this.getIsoWeekNumber(now);
+    const currentYear = now.getFullYear();
+
+    const [user, recentDoneWorkouts] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+          rules: { orderBy: { createdAt: "asc" } },
+          syncTokens: { where: { isConnected: true } },
+        },
+      }),
+      this.prisma.workout.findMany({
+        where: {
+          userId,
+          status: WorkoutStatus.DONE,
+          isRestDay: false,
+        },
+        orderBy: { dateKey: "desc" },
+        take: 30,
+      }),
+    ]);
+
+    const stravaToken = user?.syncTokens?.find((t) => t.provider === "strava");
+    const stravaMeta = (stravaToken?.metadata as any) || {};
+    const sixMonthsSummary = stravaMeta.sixMonthsSummary;
+    const savedGenPlan = stravaMeta.generatedPlan;
+
+    const startWeek = savedGenPlan?.startWeekNumber || currentWeekNumber;
+    const startYear = savedGenPlan?.year || currentYear;
+    const planMonday = this.getMondayOfWeek(startYear, startWeek);
+    const planMondayKey = planMonday.toISOString().split("T")[0];
+
+    const planWorkouts = await this.prisma.workout.findMany({
+      where: {
+        userId,
+        dateKey: { gte: planMondayKey },
+      },
+      orderBy: { dateKey: "asc" },
+    });
+
+    const recentSessions =
+      this.llmService.extractSessionMetricsFromWorkouts(recentDoneWorkouts);
+    const calibratedPaces =
+      sixMonthsSummary?.estimatedPaces ||
+      this.llmService.computePacesFromRecentPerformance({
+        hasSyncedHistory: recentDoneWorkouts.length > 0,
+        recentWeeklyKm: sixMonthsSummary?.recent4WeeksAvgKm,
+        hrMax: sixMonthsSummary?.maxHeartRateObserved,
+        recentSessions,
+      });
+
+    const shortMonths = [
+      "janv.",
+      "févr.",
+      "mars",
+      "avr.",
+      "mai",
+      "juin",
+      "juil.",
+      "août",
+      "sept.",
+      "oct.",
+      "nov.",
+      "déc.",
+    ];
+    const formatShortDate = (dateKey: string) => {
+      const parts = dateKey.split("-").map(Number);
+      if (parts.length !== 3) return dateKey;
+      return `${parts[2]} ${shortMonths[(parts[1] - 1) % 12]}`;
+    };
+
+    const byWeek = new Map<
+      string,
+      {
+        weekKey: string;
+        weekNumber: number;
+        year: number;
+        relativeWeek: number;
+        firstDateKey: string;
+        lastDateKey: string;
+        dateRangeLabel: string;
+        status: "completed" | "current" | "upcoming";
+        phaseNumber: number;
+        phaseName: string;
+        weekType: string;
+        isDeload: boolean;
+        isTaper: boolean;
+        plannedKm: number;
+        completedKm: number;
+        plannedRunningSessions: number;
+        completedSessions: number;
+        restDays: number;
+        keySessions: string[];
+        sessions: Array<{
+          id: string;
+          dateKey: string;
+          dayName: string;
+          dayNumber: number;
+          title: string;
+          category: string;
+          distance: string;
+          duration: string;
+          targetPace: string;
+          targetZoneLabel: string;
+          status: string;
+          isRestDay: boolean;
+          actualDistanceKm?: number;
+          actualPace?: string;
+          actualAvgHeartRate?: number;
+        }>;
+      }
+    >();
+
+    for (const w of planWorkouts) {
+      if (w.isCommute && w.status === WorkoutStatus.DONE) {
+        continue;
+      }
+      const wk = w.weekNumber || this.getIsoWeekNumber(new Date(w.dateKey));
+      const yr = w.year || Number(w.dateKey.slice(0, 4));
+      const weekKey = `${yr}-W${String(wk).padStart(2, "0")}`;
+
+      let entry = byWeek.get(weekKey);
+      if (!entry) {
+        entry = {
+          weekKey,
+          weekNumber: wk,
+          year: yr,
+          relativeWeek: 1,
+          firstDateKey: w.dateKey,
+          lastDateKey: w.dateKey,
+          dateRangeLabel: "",
+          status: "upcoming",
+          phaseNumber: 1,
+          phaseName: "Phase 1 : Socle Aérobie",
+          weekType: "Volume & Endurance Z2",
+          isDeload: false,
+          isTaper: false,
+          plannedKm: 0,
+          completedKm: 0,
+          plannedRunningSessions: 0,
+          completedSessions: 0,
+          restDays: 0,
+          keySessions: [],
+          sessions: [],
+        };
+        byWeek.set(weekKey, entry);
+      }
+
+      if (w.dateKey < entry.firstDateKey) entry.firstDateKey = w.dateKey;
+      if (w.dateKey > entry.lastDateKey) entry.lastDateKey = w.dateKey;
+
+      const isRunning = !w.sportType || w.sportType === "running";
+      if (w.isRestDay) {
+        entry.restDays += 1;
+      } else {
+        entry.plannedRunningSessions += 1;
+        if (isRunning && w.distance) {
+          const distNum =
+            parseFloat(
+              w.distance.replace(",", ".").replace(/[^0-9.]/g, ""),
+            ) || 0;
+          entry.plannedKm += distNum;
+        }
+        entry.keySessions.push(`${w.dayName} : ${w.title} (${w.distance})`);
+      }
+
+      if (w.status === WorkoutStatus.DONE && !w.isCommute) {
+        entry.completedSessions += 1;
+        if (isRunning && w.actualDistanceKm) {
+          entry.completedKm += w.actualDistanceKm;
+        }
+      }
+
+      if (Array.isArray(w.secondaryActivities)) {
+        for (const sec of w.secondaryActivities as any[]) {
+          if (sec && !sec.isCommute && sec.sportType === "running" && sec.distanceKm) {
+            entry.completedKm += Number(sec.distanceKm) || 0;
+          }
+        }
+      }
+
+      entry.sessions.push({
+        id: w.id,
+        dateKey: w.dateKey,
+        dayName: w.dayName,
+        dayNumber: w.dayNumber,
+        title: w.title,
+        category: w.category,
+        distance: w.distance,
+        duration: w.duration,
+        targetPace: w.targetPace,
+        targetZoneLabel: w.targetZoneLabel,
+        status: w.status.toLowerCase(),
+        isRestDay: w.isRestDay,
+        actualDistanceKm: w.actualDistanceKm ?? undefined,
+        actualPace: w.actualPace ?? undefined,
+        actualAvgHeartRate: w.actualAvgHeartRate ?? undefined,
+      });
+    }
+
+    const sortedWeeks = Array.from(byWeek.values()).sort((a, b) =>
+      a.firstDateKey.localeCompare(b.firstDateKey),
+    );
+    const totalWeeks = Math.max(1, sortedWeeks.length);
+    let currentRelativeWeek = 1;
+
+    sortedWeeks.forEach((item, index) => {
+      const relW = index + 1;
+      item.relativeWeek = relW;
+      item.plannedKm = Math.round(item.plannedKm * 10) / 10;
+      item.completedKm = Math.round(item.completedKm * 10) / 10;
+      item.dateRangeLabel = `${formatShortDate(item.firstDateKey)} – ${formatShortDate(item.lastDateKey)}`;
+
+      if (item.lastDateKey < todayDateKey) {
+        item.status = "completed";
+      } else if (
+        item.firstDateKey <= todayDateKey &&
+        todayDateKey <= item.lastDateKey
+      ) {
+        item.status = "current";
+        currentRelativeWeek = relW;
+      } else {
+        item.status = "upcoming";
+      }
+
+      const isTaper = relW >= totalWeeks - 1 && totalWeeks >= 6;
+      const isDeload = !isTaper && relW % 4 === 0;
+      item.isDeload = isDeload;
+      item.isTaper = isTaper;
+
+      const pct = relW / totalWeeks;
+      if (pct <= 0.35) {
+        item.phaseNumber = 1;
+        item.phaseName = "Phase 1 : Socle Aérobie & Régularité";
+        item.weekType = isDeload
+          ? "Semaine d'assimilation (Deload)"
+          : "Volume & Endurance Fondamentale Z2";
+      } else if (pct <= 0.65) {
+        item.phaseNumber = 2;
+        item.phaseName = "Phase 2 : Développement Seuil & Allure";
+        item.weekType = isDeload
+          ? "Semaine d'assimilation (Deload)"
+          : "Fractions Seuil Z4 & Allure Tempo";
+      } else if (pct <= 0.85) {
+        item.phaseNumber = 3;
+        item.phaseName = "Phase 3 : Pic Spécifique & Sortie Longue";
+        item.weekType = isDeload
+          ? "Semaine d'assimilation (Deload)"
+          : "Allure Spécifique Course & Sortie Longue";
+      } else {
+        item.phaseNumber = 4;
+        item.phaseName = "Phase 4 : Affûtage & Fraîcheur";
+        item.weekType = "Affûtage pré-compétition & Jus";
+      }
+    });
+
+    const phaseMeta: Record<
+      number,
+      { name: string; focus: string; defaultType: string }
+    > = {
+      1: {
+        name: "Phase 1 : Socle Aérobie & Régularité",
+        focus:
+          "Consolider ton endurance fondamentale en Zone 2, habituer tes tendons au volume hebdomadaire et installer la régularité sans fatigue excessive.",
+        defaultType: "Endurance Z2 & Montée progressive",
+      },
+      2: {
+        name: "Phase 2 : Développement Seuil & Allure",
+        focus:
+          "Élever ton seuil anaérobie (Zone 4) et ton économie de course grâce aux blocs de fractionné maîtrisés et à l'allongement progressif de la sortie longue.",
+        defaultType: "Fractions Seuil Z4 & Tempo",
+      },
+      3: {
+        name: "Phase 3 : Pic Spécifique & Sortie Longue",
+        focus:
+          "Valider ton allure spécifique d'objectif sur des volumes élevés et habituer ton corps à consommer efficacement ses réserves énergétiques.",
+        defaultType: "Allure Spécifique & Sorties Longues Clés",
+      },
+      4: {
+        name: "Phase 4 : Affûtage & Fraîcheur Optimale",
+        focus:
+          "Réduire progressivement le volume kilométrique (-35 à -45%) tout en conservant des rappels d'allure pour arriver à 100% de fraîcheur sur la ligne de départ.",
+        defaultType: "Affûtage & Surcompensation",
+      },
+    };
+
+    const phases = [1, 2, 3, 4]
+      .map((phaseNum) => {
+        const pWeeks = sortedWeeks.filter((w) => w.phaseNumber === phaseNum);
+        if (pWeeks.length === 0) return null;
+        const firstW = pWeeks[0];
+        const lastW = pWeeks[pWeeks.length - 1];
+        const avgKm = Math.round(
+          pWeeks.reduce((s, w) => s + w.plannedKm, 0) / pWeeks.length,
+        );
+        const peakKm = Math.round(
+          Math.max(...pWeeks.map((w) => w.plannedKm)),
+        );
+        const sessionsPerWeek = Math.round(
+          pWeeks.reduce((s, w) => s + w.plannedRunningSessions, 0) /
+            pWeeks.length,
+        );
+        const hasCurrent = pWeeks.some((w) => w.status === "current");
+        const allCompleted = pWeeks.every((w) => w.status === "completed");
+        const status: "completed" | "current" | "upcoming" = hasCurrent
+          ? "current"
+          : allCompleted
+            ? "completed"
+            : "upcoming";
+
+        return {
+          phaseNumber: phaseNum,
+          name: phaseMeta[phaseNum].name,
+          weeksRangeLabel:
+            firstW.relativeWeek === lastW.relativeWeek
+              ? `Semaine ${firstW.relativeWeek} (${firstW.dateRangeLabel})`
+              : `Semaines ${firstW.relativeWeek} à ${lastW.relativeWeek} (${formatShortDate(firstW.firstDateKey)} – ${formatShortDate(lastW.lastDateKey)})`,
+          focus: phaseMeta[phaseNum].focus,
+          weekType: phaseMeta[phaseNum].defaultType,
+          avgKm,
+          peakKm,
+          sessionsPerWeek,
+          weeksCount: pWeeks.length,
+          status,
+          weeks: pWeeks,
+        };
+      })
+      .filter(Boolean);
+
+    const totalPlannedKm = Math.round(
+      sortedWeeks.reduce((s, w) => s + w.plannedKm, 0),
+    );
+    const completedPlanKm =
+      Math.round(sortedWeeks.reduce((s, w) => s + w.completedKm, 0) * 10) / 10;
+    const totalPlannedSessions = sortedWeeks.reduce(
+      (s, w) => s + w.plannedRunningSessions,
+      0,
+    );
+    const peakWeeklyKm =
+      sortedWeeks.length > 0
+        ? Math.round(Math.max(...sortedWeeks.map((w) => w.plannedKm)))
+        : 0;
+    const avgWeeklyKm =
+      sortedWeeks.length > 0
+        ? Math.round(totalPlannedKm / sortedWeeks.length)
+        : 0;
+
+    const currentPhase =
+      phases.find((p: any) => p.status === "current") || phases[0] || null;
+    const progressPercentage = Math.max(
+      5,
+      Math.min(100, Math.round((currentRelativeWeek / totalWeeks) * 100)),
+    );
+
+    return {
+      goal: {
+        title: user?.activeGoalTitle || user?.mainGoal || "Objectif Course",
+        target: user?.activeGoalTarget || "",
+        raceDate: user?.activeGoalRaceDate || "",
+        weeksRemaining: Math.max(1, totalWeeks - currentRelativeWeek + 1),
+        totalWeeks,
+        currentRelativeWeek,
+        progressPercentage,
+        currentPhaseName: currentPhase?.name || "Phase 1 : Socle Aérobie",
+      },
+      calibratedPaces,
+      summaryStats: {
+        totalPlannedKm,
+        completedPlanKm,
+        totalPlannedSessions,
+        avgWeeklyKm,
+        peakWeeklyKm,
+      },
+      lifeRules: (user?.rules || []).map((r) => ({
+        id: r.id,
+        title: r.title,
+        description: r.description,
+        icon: r.icon,
+      })),
+      phases,
+      weeklyBreakdown: sortedWeeks,
     };
   }
 }

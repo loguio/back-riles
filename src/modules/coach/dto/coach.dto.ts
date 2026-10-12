@@ -15,6 +15,11 @@ export class CoachContextDto {
   @IsString()
   activeSessionTitle?: string;
 
+  @ApiPropertyOptional({ example: "2026-10-14" })
+  @IsOptional()
+  @IsString()
+  dateKey?: string;
+
   @ApiPropertyOptional({ example: 88 })
   @IsOptional()
   @IsNumber()

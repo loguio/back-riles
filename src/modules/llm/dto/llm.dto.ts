@@ -271,12 +271,34 @@ export interface LlmCoachReplyInput {
     activeWorkout?: {
       id?: string;
       dateKey?: string;
+      dayName?: string;
+      fullDateLabel?: string;
+      weekNumber?: number;
+      status?: string;
+      isRestDay?: boolean;
+      sportType?: string;
       title?: string;
       category?: string;
       duration?: string;
       distance?: string;
       targetPace?: string;
       targetZoneLabel?: string;
+      targetZoneBpm?: string;
+      aiAdjustmentNote?: string | null;
+      effortBlocks?: Array<{
+        title: string;
+        durationLabel: string;
+        type?: string;
+      }>;
+      actualDistanceKm?: number | null;
+      actualDurationSec?: number | null;
+      actualPace?: string | null;
+      actualAvgHeartRate?: number | null;
+      actualMaxHeartRate?: number | null;
+      actualElevationGain?: number | null;
+      actualCadence?: number | null;
+      tss?: number | null;
+      isExplicitlyTargeted?: boolean;
     };
     currentWeekWorkouts?: Array<{
       id?: string;

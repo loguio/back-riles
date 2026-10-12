@@ -89,6 +89,15 @@ export class WorkoutsController {
     );
   }
 
+  @Get("roadmap")
+  @ApiOperation({
+    summary:
+      "Récupère la roadmap complète en temps réel du plan de préparation (phases, découpage semaine par semaine, allures calibrées et progression)",
+  })
+  async getRoadmap(@CurrentUserId() userId: string): Promise<any> {
+    return this.workoutsService.getPlanRoadmap(userId);
+  }
+
   @Get(":identifier")
   @ApiOperation({
     summary:
