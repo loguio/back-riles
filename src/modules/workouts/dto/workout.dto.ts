@@ -160,6 +160,15 @@ export class WorkoutSessionDto {
 
   @ApiPropertyOptional({ example: "2026-10-14T19:45:00.000Z" })
   completedAt?: string;
+
+  @ApiPropertyOptional({ example: "running" })
+  sportType?: string;
+
+  @ApiPropertyOptional({ example: false })
+  isCommute?: boolean;
+
+  @ApiPropertyOptional()
+  secondaryActivities?: any[];
 }
 
 export class UpdateWorkoutDto {

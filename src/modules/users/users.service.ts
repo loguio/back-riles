@@ -64,6 +64,15 @@ export class UsersService {
     }
 
     if (dto.connectedApps) {
+      // Supprime les éventuels tokens fictifs sans accessToken qui ne sont plus dans connectedApps
+      await this.prisma.syncToken.deleteMany({
+        where: {
+          userId,
+          provider: { notIn: dto.connectedApps },
+          accessToken: null,
+        },
+      });
+
       // Synchronize connected app tokens
       for (const provider of dto.connectedApps) {
         await this.prisma.syncToken.upsert({
@@ -190,7 +199,7 @@ export class UsersService {
       })),
       connectedApps: user.syncTokens
         ? user.syncTokens.map((t: any) => t.provider)
-        : ["garmin", "strava"],
+        : [],
       planType: user.planType === PlanType.PRO ? "pro" : "basic",
       atlFatigue: user.atlFatigue,
       ctlFitness: user.ctlFitness,

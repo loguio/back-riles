@@ -257,13 +257,22 @@ export class LlmService implements OnModuleInit {
     }
 
     // Priorité 2 : Calcul à partir des séances récentes (Allure réelle + Fréquence Cardiaque)
-    const sessions = trainingContext?.recentSessions || [];
-    if (sessions.length > 0) {
+    const rawSessions = (trainingContext?.recentSessions || []).filter(
+      (s) => s.avgPaceSecPerKm && s.avgPaceSecPerKm > 150,
+    );
+    if (rawSessions.length > 0) {
+      // Si l'athlète a des séances sur route (<= 7:40/km = 460s/km), on écarte des allures plat
+      // les ultra-trails montagneux à fort D+ (ex: 13:30/km) qui fausseraient les zones Z2-Z5 route.
+      const roadSessions = rawSessions.filter(
+        (s) => (s.avgPaceSecPerKm || 0) <= 460,
+      );
+      const sessions = roadSessions.length > 0 ? roadSessions : rawSessions;
+
       const hrMax =
         trainingContext?.hrMax ||
         Math.max(
           188,
-          ...sessions.map((s) => s.maxHeartRate || 0),
+          ...rawSessions.map((s) => s.maxHeartRate || 0),
         );
 
       let weightedThresholdSum = 0;
@@ -271,7 +280,8 @@ export class LlmService implements OnModuleInit {
 
       for (const session of sessions) {
         if (!session.avgPaceSecPerKm || session.avgPaceSecPerKm <= 0) continue;
-        const weight = Math.max(1, session.distanceKm || 5);
+        // Plafonne le poids d'une séance unique à 18 km pour éviter qu'un seul ultra écrase tout l'historique
+        const weight = Math.min(18, Math.max(1, session.distanceKm || 5));
 
         if (session.avgHeartRate && session.avgHeartRate > 95) {
           // Ratio d'intensité cardiaque de la séance (ex: 145 bpm / 190 bpm = 0.763 -> 76.3% FCmax)
@@ -335,15 +345,18 @@ export class LlmService implements OnModuleInit {
       targetZoneBpm?: string | null;
       distance?: string | null;
       isRestDay?: boolean;
+      isCommute?: boolean;
+      sportType?: string | null;
     }>,
   ): AthleteTrainingContextDto["recentSessions"] {
     const metrics: NonNullable<AthleteTrainingContextDto["recentSessions"]> = [];
 
     for (const w of workouts) {
-      if (w.isRestDay) continue;
+      if (w.isRestDay || w.isCommute) continue;
+      if (w.sportType && w.sportType !== "running") continue;
 
       const paceStr = w.actualPace || w.targetPace;
-      if (!paceStr) continue;
+      if (!paceStr || paceStr.toLowerCase().includes("km/h")) continue;
 
       const paceMatch = paceStr.match(/(\d+):(\d{2})/);
       if (!paceMatch) continue;
@@ -932,8 +945,9 @@ Ta mission est de générer un plan d'entraînement multi-semaines COMPLET, indi
 
 RÈGLES ABSOLUES DE CONSTRUCTION DU PLAN :
 1. RESPECT STRICT DES RÈGLES DE VIE (LIFE RULES) :
-   - Jours bloqués / sanctuarisés détectés : ${Array.from(lockedDays).join(", ") || "Aucun jour fixe bloqué"}.
-   - Sur chaque jour bloqué par une LifeRule, tu DOIS impérativement mettre "isRestDay": true, "category": "RÉCUPÉRATION PASSIVE", "title": "Repos complet (Règle de vie respectée)", "duration": "—", "distance": "0 km".
+   - Jours bloqués par l'athlète : ${Array.from(lockedDays).join(", ") || "Aucun jour fixe bloqué"}.
+   - Sur chaque jour bloqué par une LifeRule de l'athlète, tu DOIS impérativement mettre "isRestDay": true, "category": "RÉCUPÉRATION PASSIVE", "title": "Jour de repos (Contrainte respectée)", "duration": "—", "distance": "0 km".
+   - ATTENTION ABSOLUE : Si AUCUN jour n'est bloqué par une LifeRule de l'athlète, NE BLOQUE AUCUN JOUR ARBITRAIREMENT ! Chaque coureur a un planning personnel différent. Ne présume jamais que le jeudi ou les week-ends sont des jours de repos obligatoires. Répartis 3 à 4 séances par semaine de manière équilibrée et personnalisée (ex: Mardi qualité/seuil, Jeudi endurance/spécifique, Samedi ou Dimanche sortie longue), en alternant intelligemment travail et récupération.
 2. RESPECT DES ALLURES PHYSIOLOGIQUES RÉELLES (ISSUES DES 6 DERNIERS MOIS STRAVA & FC) :
    - Endurance fondamentale (Zone 2) : ${paces.easyPaceZ2} (132–148 bpm)
    - Allure Marathon / Tempo (Zone 3) : ${paces.marathonPaceZ3} (150–160 bpm)
@@ -1056,10 +1070,10 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
         ...slot,
         timeLabel: "Jour de repos",
         isRestDay: true,
-        category: "RÉCUPÉRATION PASSIVE",
+        category: "RÉCUPÉRATION & ASSIMILATION",
         title: isLockedByRule
-          ? `Repos sanctuarisé (${slot.dayName} bloqué)`
-          : raw?.title || "Repos complet & Régénération",
+          ? `Jour de repos (${slot.dayName})`
+          : raw?.title || "Jour de repos",
         duration: "—",
         distance: "0 km",
         targetPace: "—",
@@ -1076,10 +1090,10 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
           },
         ],
         tags: isLockedByRule
-          ? ["Règle de vie respectée", "Repos"]
+          ? ["Contrainte respectée", "Repos"]
           : ["Récupération", "Hydratation"],
         aiAdjustmentNote: isLockedByRule
-          ? `Règle de vie appliquée : aucune séance programmée le ${slot.dayName.toLowerCase()}.`
+          ? `Contrainte appliquée : aucune séance programmée le ${slot.dayName.toLowerCase()}.`
           : raw?.aiAdjustmentNote ||
             "Journée d'assimilation physiologique pour consolider tes progrès.",
         tss: 0,
@@ -1423,7 +1437,7 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
 
     const lockedInfo =
       lockedDays.size > 0
-        ? `Tes jours sanctuarisés (${Array.from(lockedDays).join(", ")}) sont strictement verrouillés en repos.`
+        ? `Tes jours réservés (${Array.from(lockedDays).join(", ")}) sont programmés en repos selon tes contraintes.`
         : "Tes règles de vie sont intégrées sur chaque semaine.";
 
     const strava6m = input.sixMonthsStravaSummary;
@@ -1448,7 +1462,7 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
     paces: TargetPacesDto,
   ): LlmCoachReplyOutput {
     const lowerText = userPrompt.toLowerCase();
-    const userName = athleteContext.userName || "Marius";
+    const userName = athleteContext.userName || "l'athlète";
     const easySinglePace = paces.easyPaceZ2.split("–")[0]?.trim() || "5:45/km";
 
     // Cas A : L'utilisateur demande à voir ou consulter ses règles de vie actuelles
@@ -1671,8 +1685,11 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
     }
 
     // Cas H : Réponse générale contextualisée
+    const goalLabel = athleteContext.activeGoalTitle
+      ? `« ${athleteContext.activeGoalTitle}${athleteContext.activeGoalTarget ? ` (${athleteContext.activeGoalTarget})` : ""} »`
+      : "ton objectif";
     return {
-      replyText: `J'ai bien pris en compte ton message. Ton programme pour « ${athleteContext.activeGoalTitle || "Semi-marathon"} (${athleteContext.activeGoalTarget || "sous les 2h"}) » est calibré sur tes séances récentes (Endurance Z2 : ${paces.easyPaceZ2}, Seuil Z4 : ${paces.thresholdPaceZ4}). Dis-moi si tu as un imprévu ou une fatigue et je recalcule ta semaine automatiquement !`,
+      replyText: `J'ai bien pris en compte ton message. Ton programme pour ${goalLabel} est calibré sur tes séances récentes (Endurance Z2 : ${paces.easyPaceZ2}, Seuil Z4 : ${paces.thresholdPaceZ4}). Dis-moi si tu as un imprévu ou une fatigue et je recalcule ta semaine automatiquement !`,
       reformulatedIntent: "Échange général sur le suivi d'entraînement",
       safetyStatus: "safe",
       modelUsed: "hybrid-rule-engine",

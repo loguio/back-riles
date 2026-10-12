@@ -31,6 +31,8 @@ export interface NormalizedExecutedWorkout {
   actualSplitsJson?: any;
   completedAt: Date;
   dateKey: string;
+  sportType?: string;
+  isCommute?: boolean;
 }
 
 @Injectable()
@@ -297,6 +299,9 @@ export class WebhooksService {
             actualCadence: cw.actualCadence,
             tss: cw.tss,
             completedAt: cw.completedAt,
+            sportType: cw.sportType,
+            isCommute: cw.isCommute,
+            secondaryActivities: cw.secondaryActivities ?? undefined,
             tags: cw.tags,
             aiAdjustmentNote: cw.aiAdjustmentNote,
           },
@@ -557,16 +562,26 @@ export class WebhooksService {
 
     let recentActivities: any[] = [];
     try {
-      const res = await fetch(
-        `https://www.strava.com/api/v3/athlete/activities?after=${afterEpoch}&per_page=50`,
-        {
-          headers: { Authorization: `Bearer ${validAccessToken}` },
-        },
-      );
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          recentActivities = data;
+      let page = 1;
+      const maxPages = daysLookback > 30 ? 5 : 1;
+      while (page <= maxPages) {
+        const res = await fetch(
+          `https://www.strava.com/api/v3/athlete/activities?after=${afterEpoch}&per_page=200&page=${page}`,
+          {
+            headers: { Authorization: `Bearer ${validAccessToken}` },
+          },
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data) && data.length > 0) {
+            recentActivities.push(...data);
+            if (data.length < 200) break;
+            page++;
+          } else {
+            break;
+          }
+        } else {
+          break;
         }
       }
     } catch (err: any) {
@@ -623,6 +638,9 @@ export class WebhooksService {
           actualCadence: w.actualCadence,
           tss: w.tss,
           completedAt: w.completedAt,
+          sportType: w.sportType,
+          isCommute: w.isCommute,
+          secondaryActivities: w.secondaryActivities ?? undefined,
           tags: w.tags,
           aiAdjustmentNote: w.aiAdjustmentNote,
         },
@@ -631,9 +649,15 @@ export class WebhooksService {
       savedWorkouts.push(upserted);
     }
 
-    // Recalcul du kilométrage total utilisateur
+    // Recalcul du kilométrage total utilisateur (course à pied uniquement)
     const allDone = await this.prisma.workout.findMany({
-      where: { userId, status: WorkoutStatus.DONE, isRestDay: false },
+      where: {
+        userId,
+        status: WorkoutStatus.DONE,
+        isRestDay: false,
+        sportType: "running",
+        isCommute: false,
+      },
       select: { actualDistanceKm: true },
     });
     const totalKm = allDone.reduce(
@@ -1126,26 +1150,13 @@ export class WebhooksService {
       "DÉCEMBRE",
     ];
 
-    const byDateKey = new Map<string, any>();
+    const activitiesByDateKey = new Map<string, any[]>();
 
     for (const act of activities) {
-      const sportType = String(act.sport_type || act.type || "Run");
-      const isRun = ["Run", "TrailRun", "VirtualRun"].includes(sportType);
-      const isRide = [
-        "Ride",
-        "VirtualRide",
-        "EBikeRide",
-        "GravelRide",
-        "MountainBikeRide",
-      ].includes(sportType);
-      const isSwim = ["Swim"].includes(sportType);
-
       const distMeters = Number(act.distance || 0);
       const durationSec = Number(act.moving_time || act.elapsed_time || 0);
-      if (durationSec < 300) continue;
-      if (isRun && distMeters < 500) continue;
+      if (durationSec < 120 && distMeters < 100) continue;
 
-      // Extraction directe de la date locale au format YYYY-MM-DD (évite tout décalage d'un jour lié au fuseau horaire UTC)
       let dateKey = "";
       if (act.start_date_local && typeof act.start_date_local === "string") {
         dateKey = act.start_date_local.slice(0, 10);
@@ -1155,8 +1166,108 @@ export class WebhooksService {
         dateKey = new Date().toISOString().slice(0, 10);
       }
 
+      if (!activitiesByDateKey.has(dateKey)) {
+        activitiesByDateKey.set(dateKey, []);
+      }
+      activitiesByDateKey.get(dateKey)!.push(act);
+    }
+
+    const checkIsCommute = (act: any): boolean => {
+      if (act.commute === true) return true;
+      const sportType = String(act.sport_type || act.type || "");
+      const nonPrepSports = [
+        "Hike",
+        "Walk",
+        "EBikeRide",
+        "Golf",
+        "Kayaking",
+        "StandUpPaddling",
+        "Surfing",
+        "Sail",
+        "Skateboard",
+        "Snowshoe",
+        "AlpineSki",
+        "Snowboard",
+      ];
+      if (nonPrepSports.includes(sportType)) return true;
+
+      const title = String(act.name || "").toLowerCase();
+      const desc = String(act.description || "").toLowerCase();
+      return (
+        title.includes("taf") ||
+        title.includes("travail") ||
+        title.includes("boulot") ||
+        title.includes("commute") ||
+        title.includes("vélotaf") ||
+        title.includes("velotaf") ||
+        title.includes("aller-retour") ||
+        title.includes("trajet") ||
+        title.includes("déplacement") ||
+        title.includes("deplacement") ||
+        title.includes("transport") ||
+        title.includes("rando") ||
+        title.includes("randonnée") ||
+        title.includes("randonnee") ||
+        title.includes("balade") ||
+        title.includes("marche") ||
+        title.includes("promenade") ||
+        title.includes("cascade") ||
+        title.includes("gorge") ||
+        desc.includes("déplacement") ||
+        desc.includes("deplacement") ||
+        desc.includes("transport")
+      );
+    };
+
+    const getActivityScore = (act: any): number => {
+      const sportType = String(act.sport_type || act.type || "Run");
+      const isRun = ["Run", "TrailRun", "VirtualRun"].includes(sportType);
+      const isCommute = checkIsCommute(act);
+      const distKm = Number(act.distance || 0) / 1000;
+
+      // 1. Les séances de course à pied d'entraînement (non-commute) ont la priorité absolue
+      if (isRun && !isCommute) return 10000 + distKm;
+      // 2. Les séances réelles de cross-training (vélo, PPG, natation) non-commute
+      if (!isCommute) return 5000 + distKm;
+      // 3. Les courses de déplacement
+      if (isRun) return 2000 + distKm;
+      // 4. Les déplacements vélotaf
+      return 1000 + distKm;
+    };
+
+    const workoutsList: any[] = [];
+
+    for (const [dateKey, dayActs] of activitiesByDateKey.entries()) {
+      // Trier par score de pertinence décroissant
+      dayActs.sort((a, b) => getActivityScore(b) - getActivityScore(a));
+
+      const act = dayActs[0];
+      const otherActs = dayActs.slice(1);
+
+      const sportTypeRaw = String(act.sport_type || act.type || "Run");
+      const isRun = ["Run", "TrailRun", "VirtualRun"].includes(sportTypeRaw);
+      const isRide = [
+        "Ride",
+        "VirtualRide",
+        "EBikeRide",
+        "GravelRide",
+        "MountainBikeRide",
+      ].includes(sportTypeRaw);
+      const isSwim = ["Swim"].includes(sportTypeRaw);
+      const isCommuteAct = checkIsCommute(act);
+      const sportType = isRun
+        ? "running"
+        : isRide
+          ? "cycling"
+          : isSwim
+            ? "swimming"
+            : "cross_training";
+
+      const distMeters = Number(act.distance || 0);
+      const durationSec = Number(act.moving_time || act.elapsed_time || 0);
+
       const [yyyy, mmNum, dd] = dateKey.split("-").map(Number);
-      const mm = mmNum - 1; // 0-indexed (0 = Janvier, ..., 8 = Septembre)
+      const mm = mmNum - 1;
       const dateForDow = new Date(yyyy, mm, dd);
       const dow = dateForDow.getDay();
       const startDate = act.start_date
@@ -1164,15 +1275,6 @@ export class WebhooksService {
         : new Date(Date.UTC(yyyy, mm, dd));
 
       const actualDistanceKm = Number((distMeters / 1000).toFixed(2));
-
-      // Si une séance existe déjà ce jour-là, on garde la séance avec la plus grande distance
-      const existingForDay = byDateKey.get(dateKey);
-      if (existingForDay) {
-        const existingDist = existingForDay.actualDistanceKm || 0;
-        if (actualDistanceKm <= existingDist) {
-          continue;
-        }
-      }
 
       // Calcul du numéro de semaine ISO réel
       const targetDate = new Date(Date.UTC(yyyy, mm, dd));
@@ -1188,6 +1290,7 @@ export class WebhooksService {
         : isRide && durationSec > 0
           ? `${((actualDistanceKm / (durationSec / 3600)) || 26).toFixed(1)} km/h`
           : "Allure libre";
+
       const avgHr = act.average_heartrate
         ? Math.round(Number(act.average_heartrate))
         : undefined;
@@ -1234,7 +1337,7 @@ export class WebhooksService {
 
       const isUltra = isRun && actualDistanceKm >= 50;
       const isTrail =
-        sportType === "TrailRun" ||
+        sportTypeRaw === "TrailRun" ||
         (isRun && (actualDistanceKm >= 35 || elevationGain >= 600));
       const isLongRun = isRun && actualDistanceKm >= 14;
       const isQuality =
@@ -1250,7 +1353,9 @@ export class WebhooksService {
                 ? "SÉANCE QUALITATIVE"
                 : "ENDURANCE FONDAMENTALE"
             : isRide
-              ? "CROSS-TRAINING VÉLO"
+              ? isCommuteAct
+                ? "DÉPLACEMENT - TRANSPORT"
+                : "CROSS-TRAINING VÉLO"
               : isSwim
                 ? "CROSS-TRAINING NATATION"
                 : "RENFORCEMENT & CROSS-TRAINING";
@@ -1262,12 +1367,69 @@ export class WebhooksService {
           : isRun
             ? "Sortie Course à Pied Strava"
             : isRide
-              ? "Sortie Vélo / Endurance Croisée Strava"
+              ? isCommuteAct
+                ? "Déplacement - Transport"
+                : "Sortie Vélo / Endurance Croisée Strava"
               : isSwim
                 ? "Séance Natation Strava"
-                : `Séance ${sportType} Strava`;
+                : `Séance ${sportTypeRaw} Strava`;
 
-      byDateKey.set(dateKey, {
+      // Construction sobre des activités secondaires du jour (ex: trajets vélotaf, deuxième séance)
+      const secondaryActivities = otherActs.map((sec) => {
+        const sSport = String(sec.sport_type || sec.type || "Ride");
+        const sDistKm = Number(((Number(sec.distance || 0)) / 1000).toFixed(2));
+        const sDurationSec = Number(sec.moving_time || sec.elapsed_time || 0);
+        const sDurMins = Math.round(sDurationSec / 60);
+        const sDurationLabel =
+          sDurMins >= 60
+            ? `${Math.floor(sDurMins / 60)}h${String(sDurMins % 60).padStart(2, "0")}`
+            : `${sDurMins} min`;
+        const isSecRun = ["Run", "TrailRun", "VirtualRun"].includes(sSport);
+        const isSecRide = [
+          "Ride",
+          "VirtualRide",
+          "EBikeRide",
+          "GravelRide",
+          "MountainBikeRide",
+        ].includes(sSport);
+        const sPaceOrSpeed = isSecRun
+          ? this.formatPaceFromDistanceAndDuration(sDistKm, sDurationSec)
+          : isSecRide && sDurationSec > 0
+            ? `${((sDistKm / (sDurationSec / 3600)) || 25).toFixed(1)} km/h`
+            : undefined;
+        const isSecCommute = checkIsCommute(sec);
+
+        return {
+          id: String(sec.id || `sec-${Math.random()}`),
+          title: sec.name || (isSecCommute ? "Déplacement - Transport" : `Activité ${sSport}`),
+          sportType: isSecRun ? "running" : isSecRide ? "cycling" : sSport.toLowerCase(),
+          distanceKm: sDistKm,
+          durationSec: sDurationSec,
+          durationLabel: sDurationLabel,
+          paceOrSpeedLabel: sPaceOrSpeed,
+          isCommute: isSecCommute,
+          actualAvgHeartRate: sec.average_heartrate ? Math.round(Number(sec.average_heartrate)) : undefined,
+          actualMaxHeartRate: sec.max_heartrate ? Math.round(Number(sec.max_heartrate)) : undefined,
+          actualElevationGain: sec.total_elevation_gain !== undefined ? Math.round(Number(sec.total_elevation_gain)) : undefined,
+          actualCalories: sec.calories !== undefined ? Math.round(Number(sec.calories)) : undefined,
+          actualCadence: sec.average_cadence ? Math.round(Number(sec.average_cadence)) : undefined,
+          category: isSecCommute
+            ? "DÉPLACEMENT - TRANSPORT"
+            : isSecRun
+              ? "COURSE À PIED"
+              : isSecRide
+                ? "SORTIE VÉLO"
+                : "CROSS-TRAINING",
+          tss: this.llmService.computeSessionTss({
+            durationSec: sDurationSec,
+            distanceKm: sDistKm,
+            avgHeartRate: sec.average_heartrate ? Math.round(Number(sec.average_heartrate)) : undefined,
+            maxHeartRate: sec.max_heartrate ? Math.round(Number(sec.max_heartrate)) : undefined,
+          }),
+        };
+      });
+
+      workoutsList.push({
         userId,
         dateKey,
         dayName: dayNamesShort[dow],
@@ -1306,7 +1468,7 @@ export class WebhooksService {
             flexRatio: 1,
           },
           {
-            title: `Corps de séance Strava (${sportType})`,
+            title: `Corps de séance Strava (${sportTypeRaw})`,
             durationLabel: `${Math.max(15, durMins - 15)} min`,
             type: isQuality ? "threshold" : "interval",
             flexRatio: 3,
@@ -1322,10 +1484,10 @@ export class WebhooksService {
           actualDistanceKm > 0
             ? `${distLabel} réalisés`
             : `${durationLabel} réalisés`,
-          isRun ? `Allure réelle : ${actualPace}` : `Sport : ${sportType}`,
+          isRun ? `Allure réelle : ${actualPace}` : `Sport : ${sportTypeRaw}`,
           avgHr ? `FC moy : ${avgHr} bpm` : "Strava Sync",
         ],
-        aiAdjustmentNote: `Séance réelle (${sportType}) importée depuis tes 6 derniers mois Strava : ${distLabel} (${durationLabel})${avgHr ? ` • ${avgHr} bpm moy` : ""} • Charge : ${tss} TSS.`,
+        aiAdjustmentNote: `Séance réelle (${sportTypeRaw}) synchronisée depuis Strava : ${distLabel} (${durationLabel})${avgHr ? ` • ${avgHr} bpm moy` : ""} • Charge : ${tss} TSS.`,
         externalActivityId: String(act.id || `strava-${dateKey}`),
         sourceProvider: "strava",
         actualDistanceKm,
@@ -1338,10 +1500,13 @@ export class WebhooksService {
         actualCadence: cadence,
         tss,
         completedAt: startDate,
+        sportType,
+        isCommute: isCommuteAct,
+        secondaryActivities: secondaryActivities.length > 0 ? secondaryActivities : undefined,
       });
     }
 
-    return Array.from(byDateKey.values());
+    return workoutsList;
   }
 
   /**
@@ -1916,13 +2081,19 @@ export class WebhooksService {
     let atl = 28;
 
     for (const w of workouts) {
+      if (w.isCommute) {
+        continue;
+      }
       const cat = String(w.category || "").toUpperCase();
-      const isRide = cat.includes("VÉLO");
-      const isSwim = cat.includes("NATATION");
+      const sType = String(w.sportType || "").toLowerCase();
+      const isRide = sType === "cycling" || cat.includes("VÉLO");
+      const isSwim = sType === "swimming" || cat.includes("NATATION");
       const isCrossOther =
         !isRide &&
         !isSwim &&
-        (cat.includes("CROSS-TRAINING") ||
+        (sType === "cross_training" ||
+          cat.includes("CROSS-TRAINING") ||
+          cat.includes("RANDONNÉE") ||
           (w.actualPace &&
             !String(w.actualPace).includes("/km") &&
             Number(w.actualDistanceKm || 0) === 0));
@@ -2051,7 +2222,7 @@ export class WebhooksService {
       (crossTrainingDurationSec / 3600).toFixed(1),
     );
 
-    const ahaInsight = `Sur tes 6 derniers mois Strava (${workouts.length} activités sportives dont ${runningSessions} courses à pied pour ${roundedRunningKm} km${crossTrainingCount > 0 ? ` + ${crossTrainingCount} séances de cross-training (${crossTrainingHours}h vélo/PPG/natation)` : ""}), ton volume course a progressé jusqu'à ${recent4WeeksAvgKm} km/sem sur le dernier mois (sortie longue max : ${longestRunKm.toFixed(1)} km). Tes données montrent que le jeudi est ton jour naturel de récupération : ton plan multi-semaines calibre ta Zone 2 à ${estimatedPaces.easyPaceZ2}, ton Seuil à ${estimatedPaces.thresholdPaceZ4} et intègre ta charge multisport globale (CTL ${roundedCtl}).`;
+    const ahaInsight = `Sur tes 6 derniers mois Strava (${workouts.length} activités sportives dont ${runningSessions} courses à pied pour ${roundedRunningKm} km${crossTrainingCount > 0 ? ` + ${crossTrainingCount} séances de cross-training (${crossTrainingHours}h vélo/PPG/natation)` : ""}), ton volume course a progressé jusqu'à ${recent4WeeksAvgKm} km/sem sur le dernier mois (sortie longue max : ${longestRunKm.toFixed(1)} km). Ton plan multi-semaines calibre ta Zone 2 à ${estimatedPaces.easyPaceZ2}, ton Seuil à ${estimatedPaces.thresholdPaceZ4} et intègre ta charge multisport globale (CTL ${roundedCtl}).`;
 
     return {
       periodMonths: 6,

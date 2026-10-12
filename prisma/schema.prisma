@@ -126,6 +126,9 @@ model Workout {
   actualCadence       Int?      // ex: 178
   actualSplitsJson    Json?     // Détail km par km (splits_metric / laps)
   completedAt         DateTime?
+  sportType           String?   @default("running") // "running", "cycling", "swimming", "strength", etc.
+  isCommute           Boolean?  @default(false)
+  secondaryActivities Json?     // Array of { id, title, sportType, distanceKm, durationSec, durationLabel, paceOrSpeedLabel, isCommute }
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

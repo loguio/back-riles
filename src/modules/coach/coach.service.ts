@@ -156,16 +156,16 @@ export class CoachService {
 
     const athleteContext = {
       userName: "l'athlète", // 100% anonymisé (pas de prénom personnel envoyé au LLM)
-      readinessScore: dto.context?.readinessScore ?? user?.readinessScore ?? 88,
-      activeGoalTitle: user?.activeGoalTitle || "Semi-marathon de Paris",
-      activeGoalTarget: user?.activeGoalTarget || "Passer sous les 2h",
-      activeGoalRaceDate: user?.activeGoalRaceDate || "17 mars 2025",
-      activeGoalWeeksRemaining: user?.activeGoalWeeksRemaining ?? 6,
-      totalKm: sixMonthsSummary?.totalDistanceKm ?? user?.totalKm ?? 684,
-      activeWeeks: sixMonthsSummary?.activeWeeks ?? user?.activeWeeks ?? 25,
-      atlFatigue: user?.atlFatigue ?? 42,
-      ctlFitness: user?.ctlFitness ?? 48,
-      tsbForm: user?.tsbForm ?? 6,
+      readinessScore: dto.context?.readinessScore ?? user?.readinessScore ?? 80,
+      activeGoalTitle: user?.activeGoalTitle || user?.mainGoal || "",
+      activeGoalTarget: user?.activeGoalTarget || "",
+      activeGoalRaceDate: user?.activeGoalRaceDate || "",
+      activeGoalWeeksRemaining: user?.activeGoalWeeksRemaining ?? 16,
+      totalKm: sixMonthsSummary?.totalDistanceKm ?? user?.totalKm ?? 0,
+      activeWeeks: sixMonthsSummary?.activeWeeks ?? user?.activeWeeks ?? 0,
+      atlFatigue: user?.atlFatigue ?? 0,
+      ctlFitness: user?.ctlFitness ?? 0,
+      tsbForm: user?.tsbForm ?? 0,
       selectedSports: user?.selectedSports || ["running"],
       rules:
         user?.rules.map((r) => ({

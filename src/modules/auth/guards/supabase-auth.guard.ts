@@ -111,10 +111,7 @@ export class SupabaseAuthGuard implements CanActivate {
       const demoPayload: SupabaseJwtPayload = {
         sub: demoId,
         email: `${demoId}@riles.app`,
-        user_metadata: {
-          name: "Marius",
-          full_name: "Marius",
-        },
+        user_metadata: {},
         app_metadata: {
           provider: "email",
         },
@@ -220,7 +217,7 @@ export class SupabaseAuthGuard implements CanActivate {
   }
 
   /**
-   * Associe ou crée l'utilisateur dans PostgreSQL via Prisma avec ses données initiales
+   * Associe ou crée l'utilisateur dans PostgreSQL via Prisma avec un profil vierge (aucune donnée en dur)
    */
   private async findOrCreatePrismaUser(
     payload: SupabaseJwtPayload,
@@ -243,11 +240,11 @@ export class SupabaseAuthGuard implements CanActivate {
       return user;
     }
 
-    // Extraction du nom et des initiales
+    // Extraction du nom et des initiales à partir des métadonnées d'authentification
     const rawName =
       payload.user_metadata?.full_name ||
       payload.user_metadata?.name ||
-      (payload.email ? payload.email.split("@")[0] : "Coureur Riles");
+      (payload.email ? payload.email.split("@")[0] : "Athlète");
 
     const initials =
       rawName
@@ -255,7 +252,7 @@ export class SupabaseAuthGuard implements CanActivate {
         .map((part: string) => part[0])
         .join("")
         .toUpperCase()
-        .slice(0, 2) || "CR";
+        .slice(0, 2) || "AT";
 
     // Détermination du provider
     const providerStr = (
@@ -272,10 +269,10 @@ export class SupabaseAuthGuard implements CanActivate {
     }
 
     this.logger.log(
-      `🆕 Nouvel utilisateur Supabase détecté (${supabaseId} - ${email}). Auto-provisioning dans Prisma...`,
+      `🆕 Nouvel utilisateur Supabase détecté (${supabaseId} - ${email}). Création d'un profil vierge dans Prisma...`,
     );
 
-    // Création du profil en base PostgreSQL
+    // Création du profil vierge en base PostgreSQL (aucun objectif, règle ou appareil en dur)
     user = await this.prisma.user.create({
       data: {
         id: supabaseId,
@@ -284,63 +281,18 @@ export class SupabaseAuthGuard implements CanActivate {
         initials,
         planType: PlanType.PRO,
         authProvider,
-        readinessScore: 88,
+        readinessScore: 80,
         isOnboardingCompleted: false,
-        activeGoalTitle: "Semi-marathon de Paris",
-        activeGoalTarget: "Passer sous les 2h",
-        activeGoalRaceDate: "17 mars 2025",
-        activeGoalWeeksRemaining: 6,
-        activeGoalProgressPercentage: 65,
-        activeWeeks: 12,
-        totalKm: 328.0,
-        completedRaces: 4,
-        mainGoal: "Me préparer pour mon premier semi-marathon sans me blesser",
-        selectedSports: ["running"],
-        rules: {
-          create: [
-            {
-              title: "Jours verrouillés",
-              description:
-                "Pas d'entraînement le jeudi (famille et récupération active).",
-              icon: "calendar-lock",
-            },
-            {
-              title: "Créneaux préférés",
-              description:
-                "En semaine à 18h30 après le travail, le samedi à 09h00.",
-              icon: "clock-outline",
-            },
-            {
-              title: "Constance & Plaisir",
-              description:
-                "La régularité avant l'intensité pour préserver les mollets.",
-              icon: "bullseye-arrow",
-            },
-            {
-              title: "Sommeil & Récupération",
-              description:
-                "Minimum 7h30 de sommeil avant les sorties de seuil.",
-              icon: "sleep",
-            },
-          ],
-        },
-        syncTokens: {
-          create: [
-            {
-              provider: "garmin",
-              isConnected: true,
-              metadata: {
-                deviceName: "Garmin Forerunner 265",
-                batteryLevel: 84,
-              },
-            },
-            {
-              provider: "strava",
-              isConnected: true,
-              metadata: { athleteName: rawName, premium: true },
-            },
-          ],
-        },
+        activeGoalTitle: "",
+        activeGoalTarget: "",
+        activeGoalRaceDate: "",
+        activeGoalWeeksRemaining: 0,
+        activeGoalProgressPercentage: 0,
+        activeWeeks: 0,
+        totalKm: 0,
+        completedRaces: 0,
+        mainGoal: null,
+        selectedSports: [],
       },
       include: {
         rules: true,

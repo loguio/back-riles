@@ -60,9 +60,7 @@ export class AuthService {
           : AuthProvider.EMAIL;
 
     if (!user) {
-      const name =
-        dto.name ||
-        (dto.provider === "apple" ? "Marius (Apple)" : "Marius (Google)");
+      const name = dto.name || email.split("@")[0] || "Athlète";
       const initials = name.slice(0, 2).toUpperCase();
 
       user = await this.prisma.user.create({

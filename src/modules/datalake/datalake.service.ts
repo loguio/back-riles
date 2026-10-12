@@ -15,7 +15,6 @@ export class DataLakeService implements OnModuleInit {
   private supabaseClient: SupabaseClient | null = null;
   private readonly bucketName: string;
   private readonly localBaseDir: string;
-  private readonly localConsolidatedFile: string;
   private readonly recentRecordsBuffer: DatalakeRecord[] = [];
 
   constructor(private readonly configService: ConfigService) {
@@ -23,10 +22,6 @@ export class DataLakeService implements OnModuleInit {
       this.configService.get<string>("DATALAKE_BUCKET_NAME") ||
       "training-datalake";
     this.localBaseDir = path.resolve(process.cwd(), "storage", "datalake");
-    this.localConsolidatedFile = path.join(
-      this.localBaseDir,
-      "interactions.jsonl",
-    );
   }
 
   onModuleInit() {
@@ -34,22 +29,63 @@ export class DataLakeService implements OnModuleInit {
     this.initializeSupabase();
   }
 
+  private getLocalDateParts(date: Date = new Date()): {
+    year: number;
+    month: number;
+    day: number;
+    monthStr: string;
+    dayStr: string;
+  } {
+    try {
+      const formatter = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Europe/Paris",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      });
+      const parts = formatter.formatToParts(date);
+      const yStr =
+        parts.find((p) => p.type === "year")?.value ||
+        String(date.getFullYear());
+      const mStr =
+        parts.find((p) => p.type === "month")?.value ||
+        String(date.getMonth() + 1).padStart(2, "0");
+      const dStr =
+        parts.find((p) => p.type === "day")?.value ||
+        String(date.getDate()).padStart(2, "0");
+      return {
+        year: Number(yStr),
+        month: Number(mStr),
+        day: Number(dStr),
+        monthStr: mStr,
+        dayStr: dStr,
+      };
+    } catch {
+      const y = date.getFullYear();
+      const m = date.getMonth() + 1;
+      const d = date.getDate();
+      return {
+        year: y,
+        month: m,
+        day: d,
+        monthStr: String(m).padStart(2, "0"),
+        dayStr: String(d).padStart(2, "0"),
+      };
+    }
+  }
+
   private initializeLocalDirectory() {
     try {
       fs.mkdirSync(this.localBaseDir, { recursive: true });
-      if (fs.existsSync(this.localConsolidatedFile)) {
-        const raw = fs.readFileSync(this.localConsolidatedFile, "utf-8");
-        const lines = raw
-          .split("\n")
-          .map((l) => l.trim())
-          .filter(Boolean)
-          .slice(-200);
-        for (const line of lines) {
-          try {
-            this.recentRecordsBuffer.push(JSON.parse(line));
-          } catch {
-            // ignore malformed line
-          }
+      const legacyConsolidated = path.join(
+        this.localBaseDir,
+        "interactions.jsonl",
+      );
+      if (fs.existsSync(legacyConsolidated)) {
+        try {
+          fs.unlinkSync(legacyConsolidated);
+        } catch {
+          // ignore
         }
       }
     } catch (err: any) {
@@ -116,18 +152,16 @@ export class DataLakeService implements OnModuleInit {
   }
 
   /**
-   * Génère le chemin partitionné par date pour Supabase Storage et le disque local :
+   * Génère le chemin partitionné par date du jour (fuseau Europe/Paris) pour Supabase Storage et le disque local :
    * raw/year=YYYY/MM/DD/interaction_[timestamp]_[random].jsonl
    */
   public generatePartitionedPath(date: Date = new Date()): string {
-    const year = date.getUTCFullYear();
-    const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-    const day = String(date.getUTCDate()).padStart(2, "0");
+    const { year, monthStr, dayStr } = this.getLocalDateParts(date);
 
     const timestamp = date.getTime();
     const randomHex = crypto.randomBytes(4).toString("hex");
 
-    return `raw/year=${year}/${month}/${day}/interaction_${timestamp}_${randomHex}.jsonl`;
+    return `raw/year=${year}/${monthStr}/${dayStr}/interaction_${timestamp}_${randomHex}.jsonl`;
   }
 
   /**
@@ -140,9 +174,7 @@ export class DataLakeService implements OnModuleInit {
     try {
       const now = data.timestamp ? new Date(data.timestamp) : new Date();
 
-      const year = now.getUTCFullYear();
-      const month = now.getUTCMonth() + 1;
-      const day = now.getUTCDate();
+      const { year, month, day } = this.getLocalDateParts(now);
 
       // 1. Anonymisation systématique de l'ID utilisateur (SHA-256)
       const anonymousUserId = this.anonymizeUserId(data.userId);
@@ -180,10 +212,10 @@ export class DataLakeService implements OnModuleInit {
       // 3. Format JSON Lines (une seule ligne terminée par un saut de ligne)
       const jsonLineContent = JSON.stringify(record) + "\n";
 
-      // 4. Génération de la clé de partitionnement temporel
+      // 4. Génération de la clé de partitionnement temporel (date du jour Europe/Paris)
       const storagePath = this.generatePartitionedPath(now);
 
-      // 5. Persistance systématique sur disque local (partitionnée + fichier consolidé)
+      // 5. Persistance sur disque local uniquement dans le dossier partitionné de la date du jour
       try {
         const fullLocalPartitionedPath = path.join(
           this.localBaseDir,
@@ -193,7 +225,6 @@ export class DataLakeService implements OnModuleInit {
           recursive: true,
         });
         fs.writeFileSync(fullLocalPartitionedPath, jsonLineContent, "utf-8");
-        fs.appendFileSync(this.localConsolidatedFile, jsonLineContent, "utf-8");
       } catch (fsErr: any) {
         this.logger.warn(
           `Écriture disque local DataLake ignorée: ${fsErr?.message}`,

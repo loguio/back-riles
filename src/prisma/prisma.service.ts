@@ -62,58 +62,6 @@ export class PrismaService
   }
 
   private seedInMemoryDefaults() {
-    const defaultUserId = "user-01";
-    this.mem.users.set(defaultUserId, {
-      id: defaultUserId,
-      email: "marius@riles.app",
-      name: "Marius",
-      initials: "ML",
-      passwordHash: null,
-      authProvider: AuthProvider.APPLE,
-      planType: PlanType.PRO,
-      isOnboardingCompleted: false,
-      mainGoal: "Me préparer pour mon premier semi-marathon sans me blesser",
-      selectedSports: ["running"],
-      readinessScore: 88,
-      activeGoalTitle: "Semi-marathon de Paris",
-      activeGoalTarget: "Passer sous les 2h",
-      activeGoalRaceDate: "Dans 12 semaines",
-      activeGoalWeeksRemaining: 12,
-      activeGoalProgressPct: 65,
-      activeWeeks: 26,
-      totalKm: 684.5,
-      completedRaces: 4,
-      atlFatigue: 45.8,
-      ctlFitness: 52.4,
-      tsbForm: 6.6,
-      sleepScore: 82,
-      hrvStatus: "balanced",
-      createdAt: new Date("2026-04-01T08:00:00.000Z"),
-      updatedAt: new Date("2026-10-14T08:00:00.000Z"),
-    });
-
-    const defaultRules = [
-      {
-        id: "rule-1",
-        userId: defaultUserId,
-        title: "Pas de sortie le jeudi",
-        description: "Journée réservée au repos et à la récupération.",
-        icon: "calendar-remove",
-        createdAt: new Date("2026-04-01T08:01:00.000Z"),
-      },
-      {
-        id: "rule-2",
-        userId: defaultUserId,
-        title: "Vigilance mollet gauche",
-        description: "Échauffement progressif obligatoire avant toute intensité.",
-        icon: "shield-check",
-        createdAt: new Date("2026-04-01T08:02:00.000Z"),
-      },
-    ];
-    for (const r of defaultRules) {
-      this.mem.lifeRules.set(r.id, r);
-    }
-
     const defaultPrompts = [
       {
         id: "qp-1",
@@ -123,8 +71,8 @@ export class PrismaService
       },
       {
         id: "qp-2",
-        label: "Imprévu jeudi soir",
-        message: "J'ai un imprévu professionnel jeudi soir, décale ma séance.",
+        label: "Imprévu ce soir",
+        message: "J'ai un imprévu professionnel ce soir, décale ma séance.",
         order: 2,
       },
       {
@@ -147,11 +95,31 @@ export class PrismaService
 
   private ensureUserInMem(userId: string) {
     if (!this.mem.users.has(userId)) {
-      const template = this.mem.users.get("user-01");
       this.mem.users.set(userId, {
-        ...template,
         id: userId,
         email: `${userId}@riles.app`,
+        name: "Athlète",
+        initials: "AT",
+        passwordHash: null,
+        authProvider: AuthProvider.EMAIL,
+        planType: PlanType.PRO,
+        isOnboardingCompleted: false,
+        mainGoal: null,
+        selectedSports: [],
+        readinessScore: 80,
+        activeGoalTitle: "",
+        activeGoalTarget: "",
+        activeGoalRaceDate: "",
+        activeGoalWeeksRemaining: 0,
+        activeGoalProgressPct: 0,
+        activeWeeks: 0,
+        totalKm: 0,
+        completedRaces: 0,
+        atlFatigue: 0,
+        ctlFitness: 0,
+        tsbForm: 0,
+        sleepScore: null,
+        hrvStatus: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
