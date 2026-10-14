@@ -38,13 +38,15 @@ async function main() {
   console.log(`   - Utilisateurs : ${deletedUsers.count}`);
 
   // Recréation de l'utilisateur par défaut dans un état 100% vierge, prêt pour l'onboarding
+  // (RILES-014 : aucun score/kilométrage fabriqué — les fixtures de démo sont
+  // portées par prisma/seed.ts, pas par un « utilisateur vierge »).
   const blankUser = await prisma.user.create({
     data: {
       id: "user-01",
       email: "marius@riles.app",
       name: "Marius",
       initials: "ML",
-      readinessScore: 88,
+      readinessScore: 0,
       activeGoalTitle: "",
       activeGoalTarget: "",
       activeGoalRaceDate: "",
@@ -57,7 +59,7 @@ async function main() {
       authProvider: AuthProvider.APPLE,
       isOnboardingCompleted: false,
       mainGoal: null,
-      selectedSports: ["running"],
+      selectedSports: [],
     },
   });
 

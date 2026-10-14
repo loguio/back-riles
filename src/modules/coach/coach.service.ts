@@ -28,48 +28,50 @@ export class CoachService {
   private readonly defaultWelcomeText =
     "Salut ! Je suis ton coach IA. Dis-moi si tu as une question sur une séance, tes sensations ou si tu souhaites adapter ton planning.";
 
+  /** Ancien récapitulatif automatique de plan : masqué à la lecture (RILES-013). */
+  private isLegacyPlanRecap(msg: { sender: string; text: string }): boolean {
+    return (
+      msg.sender === "coach" &&
+      (msg.text.startsWith("📋 Plan multi-semaines") ||
+        msg.text.includes("Plan multi-semaines généré"))
+    );
+  }
+
+  /**
+   * Message d'accueil renvoyé mais jamais écrit par un GET (RILES-013).
+   * Il n'est persisté qu'au premier échange réel via POST /coach/chat.
+   */
+  private buildWelcomeMessage(userId: string): ChatMessageDto {
+    const now = new Date();
+    const timeStr = `${now.getHours().toString().padStart(2, "0")}:${now
+      .getMinutes()
+      .toString()
+      .padStart(2, "0")}`;
+    return {
+      id: `welcome-${userId}`,
+      sender: "coach",
+      text: this.defaultWelcomeText,
+      timestamp: timeStr,
+    };
+  }
+
   async getHistory(userId: string): Promise<ChatMessageDto[]> {
-    let messages = await this.prisma.chatMessage.findMany({
+    const messages = await this.prisma.chatMessage.findMany({
       where: { userId },
       orderBy: { createdAt: "asc" },
     });
 
-    // Remplace tout ancien message automatique de récapitulatif de plan par un message d'accueil simple
-    for (const msg of messages) {
-      if (
-        msg.sender === "coach" &&
-        (msg.text.startsWith("📋 Plan multi-semaines") ||
-          msg.text.includes("Plan multi-semaines généré"))
-      ) {
-        await this.prisma.chatMessage.update({
-          where: { id: msg.id },
-          data: { text: this.defaultWelcomeText },
-        });
-        msg.text = this.defaultWelcomeText;
-      }
-    }
-
+    // RILES-013 : un GET n'écrit jamais en base. L'historique vide renvoie le
+    // message d'accueil en mémoire, sans créer de ligne ; les anciens
+    // récapitulatifs de plan sont réécrits uniquement dans la réponse.
     if (messages.length === 0) {
-      const now = new Date();
-      const timeStr = `${now.getHours().toString().padStart(2, "0")}:${now
-        .getMinutes()
-        .toString()
-        .padStart(2, "0")}`;
-      const welcome = await this.prisma.chatMessage.create({
-        data: {
-          userId,
-          sender: "coach",
-          text: this.defaultWelcomeText,
-          timestamp: timeStr,
-        },
-      });
-      messages = [welcome];
+      return [this.buildWelcomeMessage(userId)];
     }
 
     return messages.map((m) => ({
       id: m.id,
       sender: m.sender as "user" | "coach" | "system",
-      text: m.text,
+      text: this.isLegacyPlanRecap(m) ? this.defaultWelcomeText : m.text,
       timestamp: m.timestamp,
       suggestedAction: (m.suggestedAction as any) || undefined,
     }));

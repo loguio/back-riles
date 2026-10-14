@@ -32,31 +32,33 @@ model User {
   passwordHash   String?
   name           String
   initials       String
-  readinessScore Int     @default(88)
+  readinessScore Int     @default(0)
 
-  // Active Goal
-  activeGoalTitle              String @default("Semi-marathon de Paris")
-  activeGoalTarget             String @default("Passer sous les 2h")
-  activeGoalRaceDate           String @default("17 mars 2025")
-  activeGoalWeeksRemaining     Int    @default(6)
-  activeGoalProgressPercentage Int    @default(65)
+  // Active Goal — RILES-014 : aucun objectif de démonstration par défaut.
+  activeGoalTitle              String @default("")
+  activeGoalTarget             String @default("")
+  activeGoalRaceDate           String @default("")
+  activeGoalWeeksRemaining     Int    @default(0)
+  activeGoalProgressPercentage Int    @default(0)
 
   // Overall Stats & Physiological Load (Modèle de Banister : TSS, ATL, CTL, TSB)
-  activeWeeks    Int    @default(12)
-  totalKm        Float  @default(328.0)
-  completedRaces Int    @default(4)
-  atlFatigue     Float  @default(42.0) // Charge aiguë 7j (Fatigue)
-  ctlFitness     Float  @default(48.0) // Charge chronique 42j (Fitness)
-  tsbForm        Float  @default(6.0)  // Balance de stress (Forme = CTL - ATL)
-  sleepScore     Int    @default(82)
-  hrvStatus      String @default("balanced")
+  // RILES-014 : tous les défauts sont à l'état zéro — aucun kilométrage, score
+  // ou charge fabriqué. Les fixtures de démonstration vivent dans prisma/seed.ts.
+  activeWeeks    Int    @default(0)
+  totalKm        Float  @default(0)
+  completedRaces Int    @default(0)
+  atlFatigue     Float  @default(0) // Charge aiguë 7j (Fatigue)
+  ctlFitness     Float  @default(0) // Charge chronique 42j (Fitness)
+  tsbForm        Float  @default(0)   // Balance de stress (Forme = CTL - ATL)
+  sleepScore     Int    @default(0)
+  hrvStatus      String @default("")
 
   // Account Preferences & State
   planType              PlanType     @default(PRO)
   authProvider          AuthProvider @default(EMAIL)
-  isOnboardingCompleted Boolean      @default(true)
+  isOnboardingCompleted Boolean      @default(false)
   mainGoal              String?
-  selectedSports        String[]     @default(["running"])
+  selectedSports        String[] @default([])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
