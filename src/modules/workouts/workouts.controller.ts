@@ -51,14 +51,16 @@ export class WorkoutsController {
     @Query("week") week?: number,
     @Query("year") year?: number,
   ): Promise<WorkoutSessionDto[]> {
+    // RILES-013 : aucune semaine démo en dur. Sans paramètre, on lit la
+    // semaine réellement en cours (calculée par le service).
     return this.workoutsService.getWeekWorkouts(
       userId,
       week !== undefined && week !== null && week !== ("" as any)
         ? Number(week)
-        : 42,
+        : undefined,
       year !== undefined && year !== null && year !== ("" as any)
         ? Number(year)
-        : 2026,
+        : undefined,
     );
   }
 
@@ -78,14 +80,16 @@ export class WorkoutsController {
     @Query("month") month?: number,
     @Query("year") year?: number,
   ): Promise<Record<string, WorkoutSessionDto>> {
+    // RILES-013 : aucun mois démo en dur (octobre 2026) : sans paramètre,
+    // on lit le mois réellement en cours.
     return this.workoutsService.getMonthWorkouts(
       userId,
       month !== undefined && month !== null && month !== ("" as any)
         ? Number(month)
-        : 9,
+        : undefined,
       year !== undefined && year !== null && year !== ("" as any)
         ? Number(year)
-        : 2026,
+        : undefined,
     );
   }
 
