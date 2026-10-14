@@ -5,10 +5,13 @@ import {
   Delete,
   Body,
   Query,
+  Req,
   Res,
   HttpCode,
   HttpStatus,
+  RawBodyRequest,
 } from "@nestjs/common";
+import type { Request } from "express";
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from "@nestjs/swagger";
 import { WebhooksService } from "./webhooks.service";
 import {
@@ -152,8 +155,14 @@ export class WebhooksController {
   })
   @ApiResponse({ status: 200, type: WebhookResponseDto })
   async handleStravaEvent(
+    @Req() req: RawBodyRequest<Request>,
     @Body() event: StravaEventDto,
   ): Promise<WebhookResponseDto> {
+    // RILES-005 : vérification HMAC sur le corps brut AVANT toute écriture.
+    this.webhooksService.verifyStravaSignature(
+      req?.rawBody,
+      req?.headers?.["x-hub-signature"],
+    );
     return this.webhooksService.handleStravaEvent(event);
   }
 
@@ -162,8 +171,14 @@ export class WebhooksController {
   @ApiOperation({ summary: "Réception des données Garmin Health / Activités" })
   @ApiResponse({ status: 200, type: WebhookResponseDto })
   async handleGarminEvent(
+    @Req() req: RawBodyRequest<Request>,
     @Body() event: GarminWebhookEventDto,
   ): Promise<WebhookResponseDto> {
+    // RILES-005 : vérification HMAC sur le corps brut AVANT toute écriture.
+    this.webhooksService.verifyGarminSignature(
+      req?.rawBody,
+      req?.headers?.["x-garmin-signature"],
+    );
     return this.webhooksService.handleGarminEvent(event);
   }
 
@@ -174,8 +189,13 @@ export class WebhooksController {
   })
   @ApiResponse({ status: 200, type: WebhookResponseDto })
   async handleAppleHealthSync(
+    @Req() req: RawBodyRequest<Request>,
     @Body() dto: AppleHealthSyncDto,
   ): Promise<WebhookResponseDto> {
+    // RILES-005 : secret partagé vérifié AVANT toute écriture.
+    this.webhooksService.verifyAppleHealthSecret(
+      req?.headers?.["x-apple-health-secret"],
+    );
     return this.webhooksService.handleAppleHealthSync(dto);
   }
 }

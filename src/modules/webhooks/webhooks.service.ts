@@ -1,5 +1,6 @@
 import { Injectable, UnauthorizedException, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import * as crypto from "crypto";
 import { PrismaService } from "../../prisma/prisma.service";
 import { DataLakeService } from "../datalake/datalake.service";
 import { LlmService } from "../llm/llm.service";
@@ -45,6 +46,137 @@ export class WebhooksService {
     private readonly dataLakeService: DataLakeService,
     private readonly llmService: LlmService,
   ) {}
+
+  // ---------------------------------------------------------------------------
+  // RILES-005 : vérification des signatures HMAC des webhooks fournisseurs
+  // Fail-closed : sans secret configuré, ou sans signature, la requête est
+  // rejetée en 401 avant toute écriture en base.
+  // ---------------------------------------------------------------------------
+
+  /** Comparaison en temps constant (le descripteur reste secret). */
+  private static constantTimeEquals(a: string, b: string): boolean {
+    const bufA = Buffer.from(a, "utf8");
+    const bufB = Buffer.from(b, "utf8");
+    if (bufA.length !== bufB.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(bufA, bufB);
+  }
+
+  /** Retire un éventuel préfixe de format ("sha1=", "sha256=", "base64="). */
+  private static stripSignaturePrefix(value: string): string {
+    const trimmed = value.trim().toLowerCase();
+    for (const prefix of ["sha1=", "sha256=", "base64="]) {
+      if (trimmed.startsWith(prefix)) {
+        return value.trim().slice(prefix.length);
+      }
+    }
+    return value.trim();
+  }
+
+  private static readHeader(
+    value: string | string[] | undefined,
+  ): string | undefined {
+    const raw = Array.isArray(value) ? value[0] : value;
+    return raw && raw.trim().length > 0 ? raw.trim() : undefined;
+  }
+
+  /** Secret d'environnement, ou rejet fail-closed 401 si absent. */
+  private requireWebhookSecret(envKey: string, provider: string): string {
+    const secret = this.configService.get<string>(envKey);
+    if (!secret || secret.trim().length === 0) {
+      this.logger.error(
+        `${provider} webhook rejected: ${envKey} is not configured (fail-closed).`,
+      );
+      throw new UnauthorizedException(
+        `${provider} webhook signature verification is not configured`,
+      );
+    }
+    return secret;
+  }
+
+  /**
+   * Strava : `X-Hub-Signature: sha1=<HMAC_SHA1(STRAVA_CLIENT_SECRET, corps brut)>`.
+   * (Strava client secret = secret de signature du webhook, voir RILES-005.)
+   */
+  verifyStravaSignature(
+    rawBody: Buffer | string | undefined | null,
+    signatureHeader: string | string[] | undefined,
+  ): void {
+    const secret = this.requireWebhookSecret(
+      "STRAVA_CLIENT_SECRET",
+      "Strava",
+    );
+    const provided = WebhooksService.readHeader(signatureHeader);
+    if (!rawBody || !provided) {
+      throw new UnauthorizedException(
+        "Missing Strava webhook signature (X-Hub-Signature)",
+      );
+    }
+    const expected = crypto
+      .createHmac("sha1", secret)
+      .update(rawBody)
+      .digest("hex");
+    if (
+      !WebhooksService.constantTimeEquals(
+        WebhooksService.stripSignaturePrefix(provided),
+        WebhooksService.stripSignaturePrefix(expected),
+      )
+    ) {
+      throw new UnauthorizedException("Invalid Strava webhook signature");
+    }
+  }
+
+  /**
+   * Garmin : `X-Garmin-Signature: base64(HMAC_SHA256(GARMIN_WEBHOOK_SECRET, corps brut))`.
+   */
+  verifyGarminSignature(
+    rawBody: Buffer | string | undefined | null,
+    signatureHeader: string | string[] | undefined,
+  ): void {
+    const secret = this.requireWebhookSecret(
+      "GARMIN_WEBHOOK_SECRET",
+      "Garmin",
+    );
+    const provided = WebhooksService.readHeader(signatureHeader);
+    if (!rawBody || !provided) {
+      throw new UnauthorizedException(
+        "Missing Garmin webhook signature (X-Garmin-Signature)",
+      );
+    }
+    const expected = crypto
+      .createHmac("sha256", secret)
+      .update(rawBody)
+      .digest("base64");
+    if (
+      !WebhooksService.constantTimeEquals(
+        WebhooksService.stripSignaturePrefix(provided),
+        WebhooksService.stripSignaturePrefix(expected),
+      )
+    ) {
+      throw new UnauthorizedException("Invalid Garmin webhook signature");
+    }
+  }
+
+  /**
+   * Apple Health : secret partagé transmis dans l'en-tête `X-Apple-Health-Secret`,
+   * comparé en temps constant à APPLE_HEALTH_SECRET.
+   */
+  verifyAppleHealthSecret(secretHeader: string | string[] | undefined): void {
+    const secret = this.requireWebhookSecret(
+      "APPLE_HEALTH_SECRET",
+      "Apple Health",
+    );
+    const provided = WebhooksService.readHeader(secretHeader);
+    if (!provided) {
+      throw new UnauthorizedException(
+        "Missing Apple Health webhook secret (X-Apple-Health-Secret)",
+      );
+    }
+    if (!WebhooksService.constantTimeEquals(provided, secret)) {
+      throw new UnauthorizedException("Invalid Apple Health webhook secret");
+    }
+  }
 
   /**
    * Construit l'URL d'autorisation OAuth2 Strava (Scope : lecture des activités sur 6 mois & profil cardio)
