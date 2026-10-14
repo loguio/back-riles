@@ -57,6 +57,25 @@ npm run prisma:seed -- --force
   ne l'utilisent : le CI applique les migrations sur une base vide à chaque PR
   et vérifie qu'elles ne dérivent pas de `schema.prisma`.
 
+### 3bis. Scripts destructeurs (`seed`, `clean` / `db:wipe`)
+
+`prisma/seed.ts` et `prisma/clean.ts` suppriment **toutes les tables**,
+utilisateurs compris (RILES-033). Ils refusent de s'exécuter — message clair
+en français, code de sortie 1, aucun accès à la base — sauf si **les trois**
+conditions suivantes sont réunies :
+
+1. le drapeau explicite `--force` est passé ;
+2. `NODE_ENV` n'est pas `production` ;
+3. `DATABASE_URL` pointe vers une base **locale** (`localhost`, `127.0.0.1`,
+   `::1` ou socket unix) et est bien renseigné.
+
+```bash
+npm run db:wipe            # refuse : aucun --force
+npm run db:wipe:dev        # vide la base LOCALE uniquement (--force passé)
+npm run prisma:seed        # refuse : aucun --force
+npm run prisma:seed:dev    # seed de démonstration, base locale uniquement
+```
+
 ### 4. Lancement du serveur NestJS
 
 ```bash

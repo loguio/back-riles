@@ -4,10 +4,21 @@ import {
   AuthProvider,
   PlanType,
 } from "@prisma/client";
+import { assertDestructiveRunAllowed, isDestructiveRunRefusal } from "./guard";
 
 const prisma = new PrismaClient();
 
 async function main() {
+  // RILES-033 : le seed efface toutes les tables avant de les remplir — il
+  // refuse donc de démarrer sans --force, en production, ou sur une base qui
+  // n'est pas une base de développement locale.
+  assertDestructiveRunAllowed(
+    "prisma/seed.ts (npm run prisma:seed / prisma db seed)",
+  );
+
+  console.warn(
+    "⚠️  Attention : ce seed est destructif. Il va supprimer toutes les tables existantes (utilisateurs, séances, messages) avant de créer des données de démonstration.",
+  );
   console.log("🌱 Démarrage du seed Prisma pour Riles Backend...");
 
   // Nettoyage complet des données précédentes
@@ -1436,7 +1447,12 @@ async function main() {
 
 main()
   .catch((e) => {
-    console.error("❌ Erreur pendant le seed :", e);
+    if (isDestructiveRunRefusal(e)) {
+      // Refus assumé (RILES-033) : on affiche la phrase complète, sans stack.
+      console.error(e.message);
+    } else {
+      console.error("❌ Erreur pendant le seed :", e);
+    }
     process.exit(1);
   })
   .finally(async () => {

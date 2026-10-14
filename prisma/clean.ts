@@ -1,8 +1,18 @@
 import { PrismaClient, PlanType, AuthProvider } from "@prisma/client";
+import { assertDestructiveRunAllowed, isDestructiveRunRefusal } from "./guard";
 
 const prisma = new PrismaClient();
 
 async function main() {
+  // RILES-033 : sans --force, sur NODE_ENV=production ou sur une base qui
+  // n'est pas locale, ce script refuse de démarrer.
+  assertDestructiveRunAllowed(
+    "prisma/clean.ts (npm run db:wipe / db:wipe:dev)",
+  );
+
+  console.warn(
+    "⚠️  Attention : cette opération est destructive. Elle va supprimer toutes les tables de la base, y compris les utilisateurs, leurs séances et leurs données de santé.",
+  );
   console.log(
     "🧹 Vidage complet de la base de données Riles (PostgreSQL / Supabase)...",
   );
@@ -61,7 +71,12 @@ async function main() {
 
 main()
   .catch((e) => {
-    console.error("❌ Erreur lors du nettoyage de la base :", e);
+    if (isDestructiveRunRefusal(e)) {
+      // Refus assumé (RILES-033) : on affiche la phrase complète, sans stack.
+      console.error(e.message);
+    } else {
+      console.error("❌ Erreur lors du nettoyage de la base :", e);
+    }
     process.exit(1);
   })
   .finally(async () => {
