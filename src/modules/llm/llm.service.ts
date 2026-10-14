@@ -10,6 +10,7 @@ import {
   ReformulateGoalResultDto,
   TargetPacesDto,
 } from "./dto/llm.dto";
+import { validateCoachReplyOutput } from "./validation/coach-reply.validator";
 
 @Injectable()
 export class LlmService implements OnModuleInit {
@@ -676,23 +677,36 @@ Réponds UNIQUEMENT avec un objet JSON valide :
 }
 (Note: mets suggestedAction et recalculatedWeekWorkouts à null si aucune modification du planning n'est nécessaire).`;
 
-        const parsed = await this.callOpenAiCompatibleJson<{
-          replyText?: string;
-          reformulatedIntent?: string;
-          safetyStatus?: any;
-          suggestedAction?: any;
-          recalculatedWeekWorkouts?: LlmCoachReplyOutput["recalculatedWeekWorkouts"];
-        }>(selectedModel, systemPrompt, userPrompt);
+        const parsed = await this.callOpenAiCompatibleJson<unknown>(
+          selectedModel,
+          systemPrompt,
+          userPrompt,
+        );
 
-        if (parsed && parsed.replyText) {
-          return {
-            replyText: parsed.replyText,
-            reformulatedIntent: parsed.reformulatedIntent,
-            safetyStatus: parsed.safetyStatus || "safe",
-            suggestedAction: parsed.suggestedAction || undefined,
-            recalculatedWeekWorkouts: parsed.recalculatedWeekWorkouts,
-            modelUsed: selectedModel,
-          };
+        // RILES-011 — Toute sortie de modèle est validée contre un schéma
+        // strict AVANT d'être retournée au coach : JSON malformé, champ
+        // inconnu, type d'action ou dateKey hors schéma => rejet complet et
+        // repli sur le moteur hybride local (aucune donnée du modèle non
+        // validée n'atteint la base).
+        if (parsed !== null && parsed !== undefined) {
+          const validation = validateCoachReplyOutput(parsed);
+          if (validation.ok && validation.value) {
+            const coachReply = validation.value;
+            const action = coachReply.suggestedAction;
+            return {
+              replyText: coachReply.replyText,
+              reformulatedIntent: coachReply.reformulatedIntent,
+              safetyStatus: coachReply.safetyStatus || "safe",
+              suggestedAction: action
+                ? { ...action, details: action.details || "" }
+                : undefined,
+              recalculatedWeekWorkouts: coachReply.recalculatedWeekWorkouts,
+              modelUsed: selectedModel,
+            };
+          }
+          this.logger.warn(
+            `Sortie du modèle rejetée (RILES-011) — repli sur le moteur hybride local : ${validation.errors.join(" | ")}`,
+          );
         }
       } catch (err: any) {
         this.logger.warn(
