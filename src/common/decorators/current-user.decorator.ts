@@ -1,4 +1,8 @@
-import { createParamDecorator, ExecutionContext } from "@nestjs/common";
+import {
+  createParamDecorator,
+  ExecutionContext,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { User } from "@prisma/client";
 
 /**
@@ -19,14 +23,11 @@ export const CurrentUserId = createParamDecorator(
       return request.supabaseUser.sub;
     }
 
-    // 3. Depuis le header x-user-id en mode développement
-    const headerUserId = request.headers["x-user-id"];
-    if (headerUserId && typeof headerUserId === "string") {
-      return headerUserId;
-    }
-
-    // 4. Fallback utilisateur de test développement
-    return "user-01";
+    // 3. Aucune identité vérifiée : refus. Le header X-User-Id n'est jamais
+    //    lu comme identité, ni aucun autre fallback (RILES-003).
+    throw new UnauthorizedException(
+      "Not authenticated: no verified user attached to this request.",
+    );
   },
 );
 
