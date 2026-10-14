@@ -39,9 +39,23 @@ docker compose up -d postgres
 
 ```bash
 npx prisma generate
-npx prisma db push
-npm run prisma:seed
+npx prisma migrate deploy
+npm run prisma:seed -- --force
 ```
+
+- **`DATABASE_URL` et `DIRECT_URL` sont tous deux requis** par les commandes
+  Prisma (migrations incluses) : voir `.env.example`.
+- **Production / déploiement** : `npx prisma migrate deploy`
+  (alias `npm run prisma:deploy`) applique uniquement les migrations versionnées
+  dans `prisma/migrations/` — c'est **la seule commande à utiliser en prod**.
+  Elle ne modifie jamais le schéma par « push » silencieux et se rejoue de
+  façon idempotente.
+- **Développement local** : `npx prisma migrate dev --name <description>`
+  crée une nouvelle migration à partir de `prisma/schema.prisma`.
+- `npx prisma db push` reste réservé au **prototypage local jetable** : il
+  n'écrit aucun historique et n'a pas de rollback. Ni le CI ni le déploiement
+  ne l'utilisent : le CI applique les migrations sur une base vide à chaque PR
+  et vérifie qu'elles ne dérivent pas de `schema.prisma`.
 
 ### 4. Lancement du serveur NestJS
 
