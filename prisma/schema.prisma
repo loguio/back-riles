@@ -114,7 +114,9 @@ model Workout {
   tss                Float?        // Training Stress Score de la séance
 
   // Données complètes de la vraie séance réalisée (récupérées via Webhooks Strava / Garmin / Apple Santé)
-  externalActivityId  String?
+  // Unique : une activité externe ne peut être écrite qu'une seule fois
+  // (anti-rejeu / anti-double-écriture cross-utilisateur — RILES-006)
+  externalActivityId  String?   @unique
   sourceProvider      String?   // "strava", "garmin", "apple_health"
   actualDistanceKm    Float?    // ex: 14.25
   actualDurationSec   Int?      // ex: 4180
@@ -205,10 +207,14 @@ model WebhookEvent {
   id          String    @id @default(cuid())
   provider    String // "strava", "garmin", "apple_health"
   eventType   String // "activity.create", "health.summary", etc.
+  objectId    String? // Identifiant externe de l'objet (activityId, summaryId, workoutUuid, empreinte du payload)
   payload     Json
   processed   Boolean   @default(false)
   processedAt DateTime?
   createdAt   DateTime  @default(now())
 
+  // Anti-rejeu / idempotence (RILES-006) : une même livraison
+  // (provider, eventType, objectId) ne peut être enregistrée qu'une fois.
+  @@unique([provider, eventType, objectId])
   @@map("webhook_events")
 }

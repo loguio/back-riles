@@ -72,8 +72,8 @@ export class OnboardingService {
     private readonly webhooksService: WebhooksService,
   ) {}
 
-  getStravaOAuthUrl(redirectUri?: string) {
-    return this.webhooksService.getStravaOAuthAuthorizeUrl(redirectUri);
+  getStravaOAuthUrl(redirectUri?: string, userId?: string) {
+    return this.webhooksService.getStravaOAuthAuthorizeUrl(redirectUri, userId);
   }
 
   async syncStravaSixMonths(

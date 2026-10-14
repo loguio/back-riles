@@ -5,10 +5,14 @@ import {
   Delete,
   Body,
   Query,
+  Req,
   Res,
   HttpCode,
   HttpStatus,
+  RawBodyRequest,
+  ForbiddenException,
 } from "@nestjs/common";
+import type { Request } from "express";
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from "@nestjs/swagger";
 import { WebhooksService } from "./webhooks.service";
 import {
@@ -18,10 +22,10 @@ import {
   WebhookResponseDto,
 } from "./dto/webhook.dto";
 import { Public } from "../../common/decorators/public.decorator";
+import { CurrentUserId } from "../../common/decorators/current-user.decorator";
 
 @ApiTags("Webhooks (Sports & Health)")
 @Controller("webhooks")
-@Public()
 export class WebhooksController {
   constructor(private readonly webhooksService: WebhooksService) {}
 
@@ -39,6 +43,7 @@ export class WebhooksController {
     name: "hub.verify_token",
     example: "riles_strava_webhook_token_2026",
   })
+  @Public() // Authentifié par hub.verify_token (fail-closed, RILES-007)
   verifyStravaSubscription(
     @Query("hub.mode") mode: string,
     @Query("hub.verify_token") verifyToken: string,
@@ -91,12 +96,19 @@ export class WebhooksController {
       "Synchronisation incrémentale à la demande des activités récentes Strava (safety net / app open / pull-to-refresh)",
   })
   async syncRecentActivities(
+    @CurrentUserId() currentUserId: string,
     @Body() body: { userId?: string; daysLookback?: number },
     @Query("userId") queryUserId?: string,
     @Query("days") queryDays?: string,
   ) {
-    const targetUserId =
-      body?.userId || queryUserId || "f2b3a1dc-a7ef-4f76-81fa-1533ea06dbe4";
+    // RILES-007 : l'appelant ne peut synchroniser que SES propres données.
+    const requestedUserId = body?.userId || queryUserId;
+    if (requestedUserId && requestedUserId !== currentUserId) {
+      throw new ForbiddenException(
+        "You can only synchronize your own activities",
+      );
+    }
+    const targetUserId = requestedUserId || currentUserId;
     const days = body?.daysLookback || (queryDays ? Number(queryDays) : 7);
     return this.webhooksService.syncRecentStravaActivities(targetUserId, days);
   }
@@ -107,8 +119,12 @@ export class WebhooksController {
       "Génère l'URL d'autorisation OAuth2 Strava (scope activity:read_all,profile:read_all)",
   })
   @ApiQuery({ name: "redirectUri", required: false })
-  getStravaOAuthUrl(@Query("redirectUri") redirectUri?: string) {
-    return this.webhooksService.getStravaOAuthAuthorizeUrl(redirectUri);
+  getStravaOAuthUrl(
+    @CurrentUserId() userId: string,
+    @Query("redirectUri") redirectUri?: string,
+  ) {
+    // RILES-007 : le state est émis pour l'utilisateur authentifié appelant.
+    return this.webhooksService.getStravaOAuthAuthorizeUrl(redirectUri, userId);
   }
 
   @Get("strava/oauth/callback")
@@ -117,13 +133,20 @@ export class WebhooksController {
       "Callback OAuth2 Strava direct : échange le code contre access_token/refresh_token et synchronise les 6 derniers mois d'activités",
   })
   @ApiQuery({ name: "code", required: false })
-  @ApiQuery({ name: "state", required: false, description: "userId optionnel" })
+  @ApiQuery({
+    name: "state",
+    required: false,
+    description: "state émis par /webhooks/strava/oauth/url (userId.nonce)",
+  })
+  @Public() // Redirection navigateur Strava : protégée par la vérification du state
   async handleStravaOAuthCallback(
     @Query("code") code?: string,
     @Query("state") state?: string,
     @Res() res?: any,
   ) {
-    const userId = state || "demo-user-marius-2026";
+    // RILES-007 : state = nonce aléatoire lié à l'appelant, vérifié et
+    // consommé côté serveur (anti login-CSRF).Tout échec est rejeté.
+    const userId = this.webhooksService.verifyOAuthState(state);
     const summary = await this.webhooksService.syncStravaSixMonthsHistory(
       userId,
       {
@@ -132,9 +155,7 @@ export class WebhooksController {
       },
     );
     if (res && typeof res.redirect === "function") {
-      return res.redirect(
-        "http://localhost:8081/onboarding?step=4&strava_synced=true",
-      );
+      return res.redirect(this.webhooksService.getOAuthSuccessRedirect());
     }
     return {
       status: "ok",
@@ -150,20 +171,34 @@ export class WebhooksController {
   @ApiOperation({
     summary: "Réception d’un événement d’activité Strava (POST Activity Event)",
   })
+  @Public() // Signature HMAC vérifiée dans le handler (RILES-005)
   @ApiResponse({ status: 200, type: WebhookResponseDto })
   async handleStravaEvent(
+    @Req() req: RawBodyRequest<Request>,
     @Body() event: StravaEventDto,
   ): Promise<WebhookResponseDto> {
+    // RILES-005 : vérification HMAC sur le corps brut AVANT toute écriture.
+    this.webhooksService.verifyStravaSignature(
+      req?.rawBody,
+      req?.headers?.["x-hub-signature"],
+    );
     return this.webhooksService.handleStravaEvent(event);
   }
 
   @Post("garmin")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: "Réception des données Garmin Health / Activités" })
+  @Public() // Signature HMAC vérifiée dans le handler (RILES-005)
   @ApiResponse({ status: 200, type: WebhookResponseDto })
   async handleGarminEvent(
+    @Req() req: RawBodyRequest<Request>,
     @Body() event: GarminWebhookEventDto,
   ): Promise<WebhookResponseDto> {
+    // RILES-005 : vérification HMAC sur le corps brut AVANT toute écriture.
+    this.webhooksService.verifyGarminSignature(
+      req?.rawBody,
+      req?.headers?.["x-garmin-signature"],
+    );
     return this.webhooksService.handleGarminEvent(event);
   }
 
@@ -172,10 +207,16 @@ export class WebhooksController {
   @ApiOperation({
     summary: "Synchronisation sécurisée des séances Apple Santé",
   })
+  @Public() // Secret partagé vérifié dans le handler (RILES-005)
   @ApiResponse({ status: 200, type: WebhookResponseDto })
   async handleAppleHealthSync(
+    @Req() req: RawBodyRequest<Request>,
     @Body() dto: AppleHealthSyncDto,
   ): Promise<WebhookResponseDto> {
+    // RILES-005 : secret partagé vérifié AVANT toute écriture.
+    this.webhooksService.verifyAppleHealthSecret(
+      req?.headers?.["x-apple-health-secret"],
+    );
     return this.webhooksService.handleAppleHealthSync(dto);
   }
 }
