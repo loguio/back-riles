@@ -11,6 +11,7 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import * as jwt from "jsonwebtoken";
 import { PrismaService } from "../../../prisma/prisma.service";
 import { IS_PUBLIC_KEY } from "../../../common/decorators/public.decorator";
+import { REQUIRE_TOKEN_KEY } from "../../../common/decorators/require-token.decorator";
 import { AuthProvider, PlanType, User } from "@prisma/client";
 import { SupabaseJwtPayload } from "../supabase-auth.types";
 import { createSupabaseAdmin } from "../supabase-admin";
@@ -48,6 +49,14 @@ export class SupabaseAuthGuard implements CanActivate {
       return true;
     }
 
+    // 1.bis Routes marquées @RequireToken() : le jeton est obligatoire AVANT
+    // toute logique de démonstration / invité (sinon un endpoint sensible
+    // resterait lisible sans authentification en dev et en test).
+    const requireToken = this.reflector.getAllAndOverride<boolean>(
+      REQUIRE_TOKEN_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+
     const request = context.switchToHttp().getRequest();
     const authHeader =
       request.headers["authorization"] || request.headers["Authorization"];
@@ -64,6 +73,11 @@ export class SupabaseAuthGuard implements CanActivate {
     // 3. Aucun jeton Bearer : refusé dans tous les environnements.
     //    Il n'existe plus aucune branche démo/dev ni d'impersonation via
     //    un en-tête X-User-Id (RILES-003).
+    if (requireToken && !token) {
+      throw new UnauthorizedException(
+        "Authentification requise : jeton Bearer manquant.",
+      );
+    }
     if (!token) {
       throw new UnauthorizedException(
         "Jeton d'authentification Bearer manquant ou invalide.",

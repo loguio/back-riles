@@ -29,8 +29,12 @@ function guardContext(handler: unknown) {
 
 function createProductionGuard(): SupabaseAuthGuard {
   const config = {
-    get: (key: string, fallback?: string) =>
-      key === "NODE_ENV" ? "production" : fallback,
+    get: (key: string, fallback?: string) => {
+      if (key === "NODE_ENV") return "production";
+      // La garde échoue fermement sans secret JWT (RILES-002).
+      if (key === "SUPABASE_JWT_SECRET") return "test-jwt-secret";
+      return fallback;
+    },
   };
   return new SupabaseAuthGuard(new Reflector(), config as any, {} as any);
 }

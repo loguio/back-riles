@@ -20,7 +20,7 @@ import {
   LogInteractionResponseDto,
 } from "./dto/datalake.dto";
 import { CurrentUserId } from "../../common/decorators/current-user.decorator";
-import { Public } from "../../common/decorators/public.decorator";
+import { RequireToken } from "../../common/decorators/require-token.decorator";
 
 @ApiTags("Data Lake")
 @ApiBearerAuth()
@@ -58,10 +58,10 @@ export class DataLakeController {
   }
 
   @Get("logs")
-  @Public()
+  @RequireToken()
   @ApiOperation({
     summary:
-      "Consulte les derniers enregistrements anonymisés archivés automatiquement dans le Data Lake",
+      "Consulte les derniers enregistrements archivés automatiquement dans le Data Lake (authentification obligatoire : contient des données RPE / santé)",
   })
   @ApiQuery({ name: "limit", required: false, example: 50 })
   @ApiQuery({
@@ -83,10 +83,10 @@ export class DataLakeController {
   }
 
   @Get("stats")
-  @Public()
+  @RequireToken()
   @ApiOperation({
     summary:
-      "Statistiques temps réel des flux automatiquement archivés dans le Data Lake (Flux A Coach/Onboarding & Flux B Webhooks/RPE)",
+      "Statistiques temps réel des flux automatiquement archivés dans le Data Lake (Flux A Coach/Onboarding & Flux B Webhooks/RPE) - authentification obligatoire",
   })
   getStats() {
     return this.dataLakeService.getStats();
