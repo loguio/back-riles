@@ -47,6 +47,13 @@ async function main() {
       activeWeeks: 12,
       totalKm: 328.0,
       completedRaces: 4,
+      // Fixtures de démonstration : portées explicitement ici (RILES-014),
+      // les défauts du schéma sont à l'état zéro pour les vrais utilisateurs.
+      atlFatigue: 42.0,
+      ctlFitness: 48.0,
+      tsbForm: 6.0,
+      sleepScore: 82,
+      hrvStatus: "balanced",
       planType: PlanType.PRO,
       authProvider: AuthProvider.APPLE,
       isOnboardingCompleted: true,

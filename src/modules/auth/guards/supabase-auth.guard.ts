@@ -199,7 +199,9 @@ export class SupabaseAuthGuard implements CanActivate {
       `🆕 Nouvel utilisateur Supabase détecté (${supabaseId} - ${email}). Création d'un profil vierge dans Prisma...`,
     );
 
-    // Création du profil vierge en base PostgreSQL (aucun objectif, règle ou appareil en dur)
+    // Création du profil vierge en base PostgreSQL (aucun objectif, règle ou
+    // appareil en dur — RILES-014 : statistiques à zéro, pas de LifeRules ni
+    // de SyncToken créés à l'inscription).
     user = await this.prisma.user.create({
       data: {
         id: supabaseId,
@@ -208,7 +210,7 @@ export class SupabaseAuthGuard implements CanActivate {
         initials,
         planType: PlanType.PRO,
         authProvider,
-        readinessScore: 80,
+        readinessScore: 0,
         isOnboardingCompleted: false,
         activeGoalTitle: "",
         activeGoalTarget: "",
