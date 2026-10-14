@@ -14,6 +14,7 @@ import { IS_PUBLIC_KEY } from "../../../common/decorators/public.decorator";
 import { AuthProvider, PlanType, User } from "@prisma/client";
 import { SupabaseJwtPayload } from "../supabase-auth.types";
 import { createSupabaseAdmin } from "../supabase-admin";
+import { requireJwtSecret } from "../jwt-secret";
 
 export type { SupabaseJwtPayload };
 
@@ -28,10 +29,10 @@ export class SupabaseAuthGuard implements CanActivate {
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
   ) {
-    this.jwtSecret =
-      this.configService.get<string>("SUPABASE_JWT_SECRET") ||
-      this.configService.get<string>("JWT_SECRET") ||
-      "super-secret-riles-jwt-key-2026-change-in-prod";
+    // Fail closed: no fallback secret, ever.
+    this.jwtSecret = requireJwtSecret((key) =>
+      this.configService.get<string>(key),
+    );
 
     this.supabaseAdmin = createSupabaseAdmin(this.configService);
   }
