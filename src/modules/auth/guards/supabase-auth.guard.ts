@@ -7,37 +7,20 @@ import {
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { ConfigService } from "@nestjs/config";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { SupabaseClient } from "@supabase/supabase-js";
 import * as jwt from "jsonwebtoken";
 import { PrismaService } from "../../../prisma/prisma.service";
 import { IS_PUBLIC_KEY } from "../../../common/decorators/public.decorator";
 import { AuthProvider, PlanType, User } from "@prisma/client";
+import { SupabaseJwtPayload } from "../supabase-auth.types";
+import { createSupabaseAdmin } from "../supabase-admin";
 
-export interface SupabaseJwtPayload {
-  sub: string;
-  email?: string;
-  role?: string;
-  aud?: string;
-  exp?: number;
-  iat?: number;
-  user_metadata?: {
-    name?: string;
-    full_name?: string;
-    avatar_url?: string;
-    picture?: string;
-    [key: string]: any;
-  };
-  app_metadata?: {
-    provider?: string;
-    providers?: string[];
-    [key: string]: any;
-  };
-}
+export type { SupabaseJwtPayload };
 
 @Injectable()
 export class SupabaseAuthGuard implements CanActivate {
   private readonly logger = new Logger(SupabaseAuthGuard.name);
-  private readonly supabaseAdmin: SupabaseClient | null = null;
+  private readonly supabaseAdmin: SupabaseClient | null;
   private readonly jwtSecret: string;
 
   constructor(
@@ -50,24 +33,7 @@ export class SupabaseAuthGuard implements CanActivate {
       this.configService.get<string>("JWT_SECRET") ||
       "super-secret-riles-jwt-key-2026-change-in-prod";
 
-    const supabaseUrl =
-      this.configService.get<string>("SUPABASE_URL") ||
-      `https://${this.configService.get<string>("SUPABASE_PROJECT_REF", "bjktawrigqjshmayutac")}.supabase.co`;
-
-    const supabaseKey =
-      this.configService.get<string>("SUPABASE_SECRET_KEY") ||
-      this.configService.get<string>("SUPABASE_SERVICE_ROLE_KEY") ||
-      this.configService.get<string>("SUPABASE_ANON_KEY") ||
-      "";
-
-    if (supabaseUrl && supabaseKey) {
-      this.supabaseAdmin = createClient(supabaseUrl, supabaseKey, {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-        },
-      });
-    }
+    this.supabaseAdmin = createSupabaseAdmin(this.configService);
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
