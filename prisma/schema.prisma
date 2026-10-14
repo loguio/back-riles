@@ -157,7 +157,8 @@ model RpeCheckIn {
   aiPreservationMessage String
   submittedAt           DateTime @default(now())
 
-  @@index([userId])
+  @@index([workoutId])
+  @@index([userId, submittedAt])
   @@map("rpe_checkins")
 }
 
@@ -190,7 +191,7 @@ model ChatMessage {
   suggestedAction Json? // { type, label, applied, workoutId, details }
   createdAt       DateTime @default(now())
 
-  @@index([userId])
+  @@index([userId, createdAt])
   @@map("chat_messages")
 }
 
