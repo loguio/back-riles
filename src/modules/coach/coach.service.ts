@@ -114,44 +114,49 @@ export class CoachService {
     const sevenDaysAheadDateKey = `${sevenDaysAhead.getFullYear()}-${String(sevenDaysAhead.getMonth() + 1).padStart(2, "0")}-${String(sevenDaysAhead.getDate()).padStart(2, "0")}`;
 
     // 2. Context Builder (RAG ciblé) : séance ciblée en priorité + profil anonyme, règles de vie, fenêtre glissante -7j/+7j
-    const [user, targetedWorkoutRaw, recentWorkoutsRaw, upcomingWorkouts, lastRpe] =
-      await Promise.all([
-        this.prisma.user.findUnique({
-          where: { id: userId },
-          include: {
-            rules: { orderBy: { createdAt: "asc" } },
-            syncTokens: { where: { isConnected: true } },
-          },
-        }),
-        this.prisma.workout.findFirst({
-          where: {
-            userId,
-            dateKey: targetDateKey,
-          },
-        }),
-        this.prisma.workout.findMany({
-          where: {
-            userId,
-            isRestDay: false,
-            dateKey: { gte: sevenDaysAgoDateKey, lte: todayDateKey },
-            status: WorkoutStatus.DONE,
-          },
-          orderBy: { dateKey: "desc" },
-          take: 7,
-        }),
-        this.prisma.workout.findMany({
-          where: {
-            userId,
-            dateKey: { gt: todayDateKey, lte: sevenDaysAheadDateKey },
-          },
-          orderBy: { dateKey: "asc" },
-          take: 7,
-        }),
-        this.prisma.rpeCheckIn.findFirst({
-          where: { userId },
-          orderBy: { submittedAt: "desc" },
-        }),
-      ]);
+    const [
+      user,
+      targetedWorkoutRaw,
+      recentWorkoutsRaw,
+      upcomingWorkouts,
+      lastRpe,
+    ] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+          rules: { orderBy: { createdAt: "asc" } },
+          syncTokens: { where: { isConnected: true } },
+        },
+      }),
+      this.prisma.workout.findFirst({
+        where: {
+          userId,
+          dateKey: targetDateKey,
+        },
+      }),
+      this.prisma.workout.findMany({
+        where: {
+          userId,
+          isRestDay: false,
+          dateKey: { gte: sevenDaysAgoDateKey, lte: todayDateKey },
+          status: WorkoutStatus.DONE,
+        },
+        orderBy: { dateKey: "desc" },
+        take: 7,
+      }),
+      this.prisma.workout.findMany({
+        where: {
+          userId,
+          dateKey: { gt: todayDateKey, lte: sevenDaysAheadDateKey },
+        },
+        orderBy: { dateKey: "asc" },
+        take: 7,
+      }),
+      this.prisma.rpeCheckIn.findFirst({
+        where: { userId },
+        orderBy: { submittedAt: "desc" },
+      }),
+    ]);
 
     // Fallback sur la séance du jour uniquement si aucune date spécifique n'a été envoyée
     const activeWorkout =
@@ -220,13 +225,13 @@ export class CoachService {
 
     // Vérifie si l'utilisateur a cliqué sur une activité secondaire de cette journée dans le calendrier
     const requestedTitle = dto.context?.activeSessionTitle?.trim();
-    const secondaryList: any[] = Array.isArray(activeWorkout?.secondaryActivities)
+    const secondaryList: any[] = Array.isArray(
+      activeWorkout?.secondaryActivities,
+    )
       ? (activeWorkout.secondaryActivities as any[])
       : [];
     const matchedSecondary =
-      requestedTitle &&
-      activeWorkout &&
-      activeWorkout.title !== requestedTitle
+      requestedTitle && activeWorkout && activeWorkout.title !== requestedTitle
         ? secondaryList.find((s) => s?.title === requestedTitle)
         : undefined;
 
@@ -458,8 +463,7 @@ export class CoachService {
               autoAppliedRule ||
               autoRecalculatedWeek ||
               Boolean(llmReply.suggestedAction.applied),
-            workoutId:
-              llmReply.suggestedAction.workoutId || activeWorkout?.id,
+            workoutId: llmReply.suggestedAction.workoutId || activeWorkout?.id,
             details: llmReply.suggestedAction.details,
             ruleData: llmReply.suggestedAction.ruleData,
           }

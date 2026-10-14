@@ -1,17 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import {
-  IsNotEmpty,
   IsOptional,
   IsString,
   IsNumber,
   IsArray,
-  IsBoolean,
   IsIn,
   Min,
   Max,
-  ValidateNested,
 } from "class-validator";
-import { Type } from "class-transformer";
 
 export class EffortBlockDto {
   @ApiProperty({ example: "Seuil" })
@@ -233,7 +229,9 @@ export class RpeCheckInRequestDto {
   @IsString()
   workoutId?: string;
 
-  @ApiPropertyOptional({ example: "Sensations fluides mais mollets un peu raides sur la fin" })
+  @ApiPropertyOptional({
+    example: "Sensations fluides mais mollets un peu raides sur la fin",
+  })
   @IsOptional()
   @IsString()
   textComment?: string;

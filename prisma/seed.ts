@@ -1383,7 +1383,7 @@ async function main() {
   ];
 
   let createdWorkoutCount = 0;
-  let createdWorkoutsList = [];
+  const createdWorkoutsList = [];
   for (const item of workoutsData) {
     const w = await prisma.workout.create({
       data: item,

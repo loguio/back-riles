@@ -163,8 +163,11 @@ export class LlmService implements OnModuleInit {
     if (
       isAlreadyInPrepInText ||
       (effectiveWeeklyKm !== undefined &&
-        ((distanceKm >= 60 && (effectiveWeeklyKm >= 50 || longestRecentRunKm >= 28)) ||
-          (distanceKm >= 40 && distanceKm < 60 && (effectiveWeeklyKm >= 38 || longestRecentRunKm >= 22))))
+        ((distanceKm >= 60 &&
+          (effectiveWeeklyKm >= 50 || longestRecentRunKm >= 28)) ||
+          (distanceKm >= 40 &&
+            distanceKm < 60 &&
+            (effectiveWeeklyKm >= 38 || longestRecentRunKm >= 22))))
     ) {
       return {
         status: "ELIGIBLE",
@@ -176,7 +179,10 @@ export class LlmService implements OnModuleInit {
     // 2. Si nous n'avons pas encore l'historique réel (ex: Onboarding avant synchro Strava/Garmin) -> AUCUN BLOCAGE ARBITRAIRE
     if (!hasVerifiedContext || effectiveWeeklyKm === undefined) {
       return {
-        status: distanceKm >= 60 && weeksAvailable <= 12 ? "CONTEXT_NEEDED" : "ELIGIBLE",
+        status:
+          distanceKm >= 60 && weeksAvailable <= 12
+            ? "CONTEXT_NEEDED"
+            : "ELIGIBLE",
         isRealistic: true,
         pedagogicalMessage:
           distanceKm >= 60 && weeksAvailable <= 12
@@ -270,10 +276,7 @@ export class LlmService implements OnModuleInit {
 
       const hrMax =
         trainingContext?.hrMax ||
-        Math.max(
-          188,
-          ...rawSessions.map((s) => s.maxHeartRate || 0),
-        );
+        Math.max(188, ...rawSessions.map((s) => s.maxHeartRate || 0));
 
       let weightedThresholdSum = 0;
       let totalWeight = 0;
@@ -285,7 +288,10 @@ export class LlmService implements OnModuleInit {
 
         if (session.avgHeartRate && session.avgHeartRate > 95) {
           // Ratio d'intensité cardiaque de la séance (ex: 145 bpm / 190 bpm = 0.763 -> 76.3% FCmax)
-          const hrRatio = Math.min(0.98, Math.max(0.6, session.avgHeartRate / hrMax));
+          const hrRatio = Math.min(
+            0.98,
+            Math.max(0.6, session.avgHeartRate / hrMax),
+          );
           // Le seuil anaérobie (Z4) se situe autour de 88% FCmax.
           // Dérive physiologique moyenne : ~3.8 sec/km par point de % de FCmax.
           const deltaPctToThreshold = (0.88 - hrRatio) * 100;
@@ -349,7 +355,8 @@ export class LlmService implements OnModuleInit {
       sportType?: string | null;
     }>,
   ): AthleteTrainingContextDto["recentSessions"] {
-    const metrics: NonNullable<AthleteTrainingContextDto["recentSessions"]> = [];
+    const metrics: NonNullable<AthleteTrainingContextDto["recentSessions"]> =
+      [];
 
     for (const w of workouts) {
       if (w.isRestDay || w.isCommute) continue;
@@ -364,8 +371,7 @@ export class LlmService implements OnModuleInit {
         parseInt(paceMatch[1], 10) * 60 + parseInt(paceMatch[2], 10);
 
       // Priorité à la vraie fréquence cardiaque moyenne mesurée par la montre
-      let avgHeartRate: number | undefined =
-        w.actualAvgHeartRate ?? undefined;
+      let avgHeartRate: number | undefined = w.actualAvgHeartRate ?? undefined;
       if (!avgHeartRate && w.targetZoneBpm) {
         const bpmMatches = w.targetZoneBpm.match(/(\d{2,3})/g);
         if (bpmMatches && bpmMatches.length >= 2) {
@@ -381,9 +387,7 @@ export class LlmService implements OnModuleInit {
       let distanceKm = w.actualDistanceKm ?? undefined;
       if (!distanceKm && w.distance) {
         const distMatch = w.distance.match(/(\d+(?:[.,]\d+)?)/);
-        distanceKm = distMatch
-          ? parseFloat(distMatch[1].replace(",", "."))
-          : 8;
+        distanceKm = distMatch ? parseFloat(distMatch[1].replace(",", ".")) : 8;
       }
 
       metrics.push({
@@ -458,7 +462,9 @@ export class LlmService implements OnModuleInit {
     }
 
     // 3. Détection de nombre de séances par semaine ou durée max
-    const freqMatch = lower.match(/(\d)\s*(séances?|fois)\s*(par|\/)\s*semaine/i);
+    const freqMatch = lower.match(
+      /(\d)\s*(séances?|fois)\s*(par|\/)\s*semaine/i,
+    );
     if (freqMatch) {
       rules.push({
         title: "Fréquence hebdomadaire",
@@ -508,7 +514,11 @@ Réponds UNIQUEMENT avec un objet JSON valide au format suivant :
           reformulatedGoal?: string;
           extractedGoal?: ExtractedGoalDto;
           extractedRules?: ExtractedRuleDto[];
-        }>(this.lightModel, systemPrompt, `Objectif utilisateur : "${rawGoal}"`);
+        }>(
+          this.lightModel,
+          systemPrompt,
+          `Objectif utilisateur : "${rawGoal}"`,
+        );
 
         if (llmJson && llmJson.reformulatedGoal) {
           return {
@@ -692,7 +702,11 @@ Réponds UNIQUEMENT avec un objet JSON valide :
     }
 
     // 5. Moteur Hybride Local Intelligent (0 ms, fonctionne même hors-ligne / sans clé)
-    return this.generateDeterministicCoachReply(userPrompt, athleteContext, paces);
+    return this.generateDeterministicCoachReply(
+      userPrompt,
+      athleteContext,
+      paces,
+    );
   }
 
   /**
@@ -709,8 +723,7 @@ Réponds UNIQUEMENT avec un objet JSON valide :
     paces: TargetPacesDto,
   ): string {
     const today =
-      athleteContext.todayDate ||
-      new Date().toISOString().split("T")[0];
+      athleteContext.todayDate || new Date().toISOString().split("T")[0];
     const weeksRemaining = athleteContext.activeGoalWeeksRemaining || 8;
     const weeklyKm = Math.round(
       athleteContext.trainingContext?.recentWeeklyKm ||
@@ -782,7 +795,9 @@ Réponds UNIQUEMENT avec un objet JSON valide :
           detailsLines.push(`- Structure / Blocs de la séance : ${blocksStr}`);
         }
         if (act.aiAdjustmentNote) {
-          detailsLines.push(`- Intention pédagogique : ${act.aiAdjustmentNote}`);
+          detailsLines.push(
+            `- Intention pédagogique : ${act.aiAdjustmentNote}`,
+          );
         }
       }
 
@@ -829,7 +844,9 @@ Réponds UNIQUEMENT avec un objet JSON valide :
     // 3. Règles de vie
     const rulesList =
       athleteContext.rules && athleteContext.rules.length > 0
-        ? athleteContext.rules.map((r) => `- ${r.title} : ${r.description}`).join("\n")
+        ? athleteContext.rules
+            .map((r) => `- ${r.title} : ${r.description}`)
+            .join("\n")
         : "- Aucune contrainte spécifique enregistrée.";
     const rulesSection = `### 3. RÈGLES DE VIE (À respecter scrupuleusement)\n${rulesList}`;
 
@@ -847,9 +864,7 @@ Réponds UNIQUEMENT avec un objet JSON valide :
         ? `${w.actualDistanceKm} km`
         : w.distance || "";
       const pace = w.actualPace ? `• Allure ${w.actualPace}` : "";
-      const hr = w.actualAvgHeartRate
-        ? `• FC ${w.actualAvgHeartRate} bpm`
-        : "";
+      const hr = w.actualAvgHeartRate ? `• FC ${w.actualAvgHeartRate} bpm` : "";
       pastItems.push(
         `- ${w.dateKey} : ${w.title} (${dist} ${pace} ${hr}) [Fait]`,
       );
@@ -866,9 +881,7 @@ Réponds UNIQUEMENT avec un objet JSON valide :
       const rest = w.isRestDay
         ? `REPOS (${w.title})`
         : `${w.title} (${w.distance} • Cible ${w.targetPace || paces.easyPaceZ2})`;
-      upcomingItems.push(
-        `- ${w.dayName || ""} ${w.dateKey} : ${rest} [Prévu]`,
-      );
+      upcomingItems.push(`- ${w.dayName || ""} ${w.dateKey} : ${rest} [Prévu]`);
     }
     const upcomingSection = `### 6. PLAN IMMÉDIAT AUTOUR D'AUJOURD'HUI (+7 JOURS)\n${
       upcomingItems.length > 0
@@ -993,7 +1006,8 @@ Réponds UNIQUEMENT avec un objet JSON valide :
     };
 
     for (const rule of lifeRules) {
-      const text = `${rule.title || ""} ${rule.description || ""}`.toLowerCase();
+      const text =
+        `${rule.title || ""} ${rule.description || ""}`.toLowerCase();
       // Ignore les règles qui décrivent la date de la course ou un objectif positif (ex: "Course prévue le troisième samedi de février", "Sortie longue le dimanche")
       if (
         text.includes("échéance") ||
@@ -1032,9 +1046,7 @@ Réponds UNIQUEMENT avec un objet JSON valide :
    * en lui fournissant TOUT le contexte de l'athlète, ses 6 derniers mois de données Strava,
    * ses vraies allures (issues des séances récentes & FC) et ses LifeRules.
    */
-  async generateMultiWeekPlan(
-    input: any,
-  ): Promise<{
+  async generateMultiWeekPlan(input: any): Promise<{
     planSummary: string;
     modelUsed: string;
     workouts: any[];
@@ -1304,14 +1316,19 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
       28;
     // Démarrage adapté et progressif : ~80-85% du volume habituel pour commencer en douceur
     // Si habitué à 25-30 km, on démarre à ~22-24 km (pas à 40 km d'entrée de jeu, ni à un niveau ridicule)
-    const startWeeklyKm = Math.max(18, Math.min(30, Math.round(baseRecentKm * 0.82)));
+    const startWeeklyKm = Math.max(
+      18,
+      Math.min(30, Math.round(baseRecentKm * 0.82)),
+    );
 
     // Modèle physiologique de périodisation 3:1 avec règle des 10 %
     const computeWeekMetrics = (wIdx: number) => {
       const isTapering = wIdx >= totalWeeks - 2 && totalWeeks >= 8;
       if (isTapering) {
         const peakCycleIdx = Math.floor((totalWeeks - 3) / 4);
-        const peakVolume = Math.round(startWeeklyKm * Math.pow(1.15, peakCycleIdx) * 1.21);
+        const peakVolume = Math.round(
+          startWeeklyKm * Math.pow(1.15, peakCycleIdx) * 1.21,
+        );
         const taperRatio = wIdx === totalWeeks - 1 ? 0.55 : 0.75;
         return {
           targetKm: Math.round(peakVolume * taperRatio),
@@ -1331,11 +1348,12 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
           targetKm: Math.round(cycleBase),
           isDeload: false,
           isTaper: false,
-          phaseLabel: cycleIndex === 0 ? "Socle Aérobie" : "Développement Seuil",
+          phaseLabel:
+            cycleIndex === 0 ? "Socle Aérobie" : "Développement Seuil",
         };
       } else if (posInCycle === 1) {
         return {
-          targetKm: Math.round(cycleBase * 1.10), // +10%
+          targetKm: Math.round(cycleBase * 1.1), // +10%
           isDeload: false,
           isTaper: false,
           phaseLabel: "Montée de Charge (+10 %)",
@@ -1360,10 +1378,15 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
     const workouts = slots.map((slot) => {
       const key = `${slot.year}-${slot.weekNumber}`;
       const weekIndex = distinctWeekMap.get(key) || 0;
-      const { targetKm, isDeload, isTaper, phaseLabel } = computeWeekMetrics(weekIndex);
+      const { targetKm, isDeload, isTaper } = computeWeekMetrics(weekIndex);
 
       if (lockedDays.has(slot.dayName)) {
-        return this.normalizeGeneratedWorkout(slot, { isRestDay: true }, lockedDays, paces);
+        return this.normalizeGeneratedWorkout(
+          slot,
+          { isRestDay: true },
+          lockedDays,
+          paces,
+        );
       }
 
       if (slot.dayName === "Lun") {
@@ -1512,7 +1535,8 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
             title: isDeload
               ? `Sortie Longue d'Assimilation (${dist} km)`
               : `Sortie Longue Progressive (${dist} km)`,
-            duration: h > 0 ? `${h}h${String(m).padStart(2, "0")}` : `${mins} min`,
+            duration:
+              h > 0 ? `${h}h${String(m).padStart(2, "0")}` : `${mins} min`,
             distance: `${dist} km`,
             targetPace: easySinglePace,
             targetZoneLabel: "Zone 2",
@@ -1567,7 +1591,6 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
     paces: TargetPacesDto,
   ): LlmCoachReplyOutput {
     const lowerText = userPrompt.toLowerCase();
-    const userName = athleteContext.userName || "l'athlète";
     const easySinglePace = paces.easyPaceZ2.split("–")[0]?.trim() || "5:45/km";
 
     // Cas A : L'utilisateur demande à voir ou consulter ses règles de vie actuelles
@@ -1581,7 +1604,9 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
       const currentRules = athleteContext.rules || [];
       const rulesList =
         currentRules.length > 0
-          ? currentRules.map((r) => `• ${r.title} : ${r.description}`).join("\n")
+          ? currentRules
+              .map((r) => `• ${r.title} : ${r.description}`)
+              .join("\n")
           : "Aucune règle spécifique enregistrée pour le moment.";
       return {
         replyText: `Voici tes règles de vie actuelles que je respecte pour construire ton plan :\n${rulesList}\n\nDis-moi simplement si tu veux en ajouter ou en modifier une !`,
@@ -1603,12 +1628,11 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
       lowerText.includes("chaque semaine");
 
     if (extractedRules.length > 0 || isExplicitRuleIntent) {
-      const newRule: ExtractedRuleDto =
-        extractedRules[0] || {
-          title: "Contrainte personnelle",
-          description: userPrompt.trim(),
-          icon: "calendar-lock",
-        };
+      const newRule: ExtractedRuleDto = extractedRules[0] || {
+        title: "Contrainte personnelle",
+        description: userPrompt.trim(),
+        icon: "calendar-lock",
+      };
 
       return {
         replyText: `C'est compris et reformulé automatiquement dans tes règles : « ${newRule.title} — ${newRule.description} ». Ton plan en tient désormais compte chaque semaine !`,
@@ -1640,12 +1664,14 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
       );
       return {
         replyText: `Je comprends : tu ressens une gêne musculaire qu'il ne faut surtout pas forcer. Je remplace ta séance du jour par 20 min de mobilité sans impact et j'assouplis automatiquement ta fin de semaine en endurance fondamentale (${easySinglePace}) pour protéger tes fibres.`,
-        reformulatedIntent: "Adaptation préventive & rééquilibrage de la semaine",
+        reformulatedIntent:
+          "Adaptation préventive & rééquilibrage de la semaine",
         safetyStatus: "warning_fatigue",
         recalculatedWeekWorkouts: recalculated,
         suggestedAction: {
           type: "reduce_intensity",
-          label: "Semaine rééquilibrée : Repos mollet & Fin de semaine assouplie",
+          label:
+            "Semaine rééquilibrée : Repos mollet & Fin de semaine assouplie",
           applied: true,
           details: "injury_care",
         },
@@ -1670,12 +1696,14 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
       );
       return {
         replyText: `C'est bien noté. J'ai recalculé ta semaine pour absorber cet imprévu : ta séance du jour passe en footing léger de 35 min en Zone 2 (${paces.easyPaceZ2}) et j'ai ajusté la charge des prochains jours pour que tu restes frais.`,
-        reformulatedIntent: "Allègement de séance & recalcul dynamique de la semaine",
+        reformulatedIntent:
+          "Allègement de séance & recalcul dynamique de la semaine",
         safetyStatus: "warning_fatigue",
         recalculatedWeekWorkouts: recalculated,
         suggestedAction: {
           type: "reduce_intensity",
-          label: "Semaine recalculée : Séance allégée (35 min Z2) & charge lissée",
+          label:
+            "Semaine recalculée : Séance allégée (35 min Z2) & charge lissée",
           applied: true,
           details: "lighten",
         },
@@ -1726,7 +1754,8 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
       );
       return {
         replyText: `Aucun souci, le plan s'adapte à ta vraie vie sans culpabilité. J'ai placé ton repos aujourd'hui et recalculé la suite de ta semaine en respectant tes règles de vie.`,
-        reformulatedIntent: "Report de séance & recalcul dynamique de la semaine",
+        reformulatedIntent:
+          "Report de séance & recalcul dynamique de la semaine",
         safetyStatus: "safe",
         recalculatedWeekWorkouts: recalculated,
         suggestedAction: {
@@ -1856,7 +1885,8 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
     mode: "increase" | "decrease",
     paces: TargetPacesDto,
   ): NonNullable<LlmCoachReplyOutput["recalculatedWeekWorkouts"]> {
-    const result: NonNullable<LlmCoachReplyOutput["recalculatedWeekWorkouts"]> = [];
+    const result: NonNullable<LlmCoachReplyOutput["recalculatedWeekWorkouts"]> =
+      [];
     const weekWorkouts = athleteContext.currentWeekWorkouts || [];
     const factor = mode === "increase" ? 1.15 : 0.85;
     const easySinglePace = paces.easyPaceZ2.split("–")[0]?.trim() || "5:45/km";
@@ -1938,7 +1968,8 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
     mode: "lighten" | "easy_run" | "postpone" | "injury_care",
     paces: TargetPacesDto,
   ): NonNullable<LlmCoachReplyOutput["recalculatedWeekWorkouts"]> {
-    const result: NonNullable<LlmCoachReplyOutput["recalculatedWeekWorkouts"]> = [];
+    const result: NonNullable<LlmCoachReplyOutput["recalculatedWeekWorkouts"]> =
+      [];
     const activeDateKey =
       athleteContext.activeWorkout?.dateKey ||
       athleteContext.todayDate ||
@@ -2011,7 +2042,11 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
     // Rééquilibrage automatique des jours suivants de la semaine (sans toucher aux séances DONE ni aux LifeRules)
     const weekWorkouts = athleteContext.currentWeekWorkouts || [];
     for (const w of weekWorkouts) {
-      if (w.dateKey <= activeDateKey || w.status === "done" || w.status === "DONE") {
+      if (
+        w.dateKey <= activeDateKey ||
+        w.status === "done" ||
+        w.status === "DONE"
+      ) {
         continue;
       }
       if (lockedDays.has(w.dayName) || w.isRestDay) {
@@ -2122,8 +2157,7 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
       }
 
       const data: any = await response.json();
-      const rawContent: string =
-        data?.choices?.[0]?.message?.content || "";
+      const rawContent: string = data?.choices?.[0]?.message?.content || "";
 
       if (!rawContent) {
         return null;

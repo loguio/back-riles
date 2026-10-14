@@ -4,7 +4,12 @@ import {
   OnModuleDestroy,
   Logger,
 } from "@nestjs/common";
-import { AuthProvider, PlanType, PrismaClient, WorkoutStatus } from "@prisma/client";
+import {
+  AuthProvider,
+  PlanType,
+  PrismaClient,
+  WorkoutStatus,
+} from "@prisma/client";
 import * as crypto from "crypto";
 
 /**
@@ -66,7 +71,8 @@ export class PrismaService
       {
         id: "qp-1",
         label: "J'ai les jambes lourdes aujourd'hui",
-        message: "J'ai les jambes lourdes aujourd'hui, peux-tu adapter ma semaine ?",
+        message:
+          "J'ai les jambes lourdes aujourd'hui, peux-tu adapter ma semaine ?",
         order: 1,
       },
       {
@@ -84,7 +90,8 @@ export class PrismaService
       {
         id: "qp-4",
         label: "Bilan de mes 6 mois Strava",
-        message: "Que penses-tu de ma progression sur mes 6 derniers mois Strava ?",
+        message:
+          "Que penses-tu de ma progression sur mes 6 derniers mois Strava ?",
         order: 4,
       },
     ];
@@ -153,22 +160,30 @@ export class PrismaService
     if (!where) return true;
     if (where.id && w.id !== where.id) return false;
     if (where.userId && w.userId !== where.userId) return false;
-    if (where.weekNumber !== undefined && Number(w.weekNumber) !== Number(where.weekNumber))
+    if (
+      where.weekNumber !== undefined &&
+      Number(w.weekNumber) !== Number(where.weekNumber)
+    )
       return false;
     if (where.month !== undefined && Number(w.month) !== Number(where.month))
       return false;
     if (where.year !== undefined && Number(w.year) !== Number(where.year))
       return false;
-    if (where.isRestDay !== undefined && Boolean(w.isRestDay) !== Boolean(where.isRestDay))
+    if (
+      where.isRestDay !== undefined &&
+      Boolean(w.isRestDay) !== Boolean(where.isRestDay)
+    )
       return false;
     if (where.status) {
-      if (typeof where.status === "string" && w.status !== where.status) return false;
+      if (typeof where.status === "string" && w.status !== where.status)
+        return false;
       if (where.status.in && !where.status.in.includes(w.status)) return false;
     }
     if (where.dateKey) {
       if (typeof where.dateKey === "string" && w.dateKey !== where.dateKey)
         return false;
-      if (where.dateKey.in && !where.dateKey.in.includes(w.dateKey)) return false;
+      if (where.dateKey.in && !where.dateKey.in.includes(w.dateKey))
+        return false;
       if (where.dateKey.gte && w.dateKey < where.dateKey.gte) return false;
       if (where.dateKey.lte && w.dateKey > where.dateKey.lte) return false;
     }
@@ -340,7 +355,8 @@ export class PrismaService
             (w) => w.userId === item.userId && w.dateKey === item.dateKey,
           );
           if (existing && skipDuplicates) continue;
-          const id = existing?.id || item.id || `w-${item.userId}-${item.dateKey}`;
+          const id =
+            existing?.id || item.id || `w-${item.userId}-${item.dateKey}`;
           this.mem.workouts.set(id, {
             ...item,
             id,
@@ -365,7 +381,11 @@ export class PrismaService
             const cleanData = Object.fromEntries(
               Object.entries(data).filter(([, v]) => v !== undefined),
             );
-            this.mem.workouts.set(id, { ...w, ...cleanData, updatedAt: new Date() });
+            this.mem.workouts.set(id, {
+              ...w,
+              ...cleanData,
+              updatedAt: new Date(),
+            });
             count++;
           }
         }
@@ -416,9 +436,15 @@ export class PrismaService
         return (
           Array.from(this.mem.syncTokens.values()).find((t) => {
             if (where?.provider && t.provider !== where.provider) return false;
-            if (where?.externalUserId && t.externalUserId !== where.externalUserId)
+            if (
+              where?.externalUserId &&
+              t.externalUserId !== where.externalUserId
+            )
               return false;
-            if (where?.isConnected !== undefined && t.isConnected !== where.isConnected)
+            if (
+              where?.isConnected !== undefined &&
+              t.isConnected !== where.isConnected
+            )
               return false;
             return true;
           }) || null
@@ -428,7 +454,10 @@ export class PrismaService
         return Array.from(this.mem.syncTokens.values()).filter((t) => {
           if (where?.userId && t.userId !== where.userId) return false;
           if (where?.provider && t.provider !== where.provider) return false;
-          if (where?.isConnected !== undefined && t.isConnected !== where.isConnected)
+          if (
+            where?.isConnected !== undefined &&
+            t.isConnected !== where.isConnected
+          )
             return false;
           return true;
         });

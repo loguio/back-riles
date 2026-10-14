@@ -319,8 +319,7 @@ export class OnboardingService {
       }
     }
 
-    const stravaConnected =
-      dto?.connectedApps?.includes("strava") ?? true;
+    const stravaConnected = dto?.connectedApps?.includes("strava") ?? true;
     if (stravaConnected) {
       const stravaTok = await this.prisma.syncToken.findUnique({
         where: { userId_provider: { userId, provider: "strava" } },
@@ -383,9 +382,10 @@ export class OnboardingService {
     const { targetDate, weeks: calculatedWeeks } =
       this.parseTargetRaceDate(rawDateCandidate);
 
-    const weeksToGenerate = dto?.weeksToGenerate && dto.weeksToGenerate > 0
-      ? dto.weeksToGenerate
-      : calculatedWeeks;
+    const weeksToGenerate =
+      dto?.weeksToGenerate && dto.weeksToGenerate > 0
+        ? dto.weeksToGenerate
+        : calculatedWeeks;
 
     if (targetDate) {
       dataToUpdate.activeGoalRaceDate = targetDate.toLocaleDateString("fr-FR", {
@@ -480,8 +480,8 @@ export class OnboardingService {
       byWeek.set(weekKey, entry);
     }
 
-    const sortedWeeks = Array.from(byWeek.values()).sort(
-      (a, b) => a.firstDateKey.localeCompare(b.firstDateKey),
+    const sortedWeeks = Array.from(byWeek.values()).sort((a, b) =>
+      a.firstDateKey.localeCompare(b.firstDateKey),
     );
 
     sortedWeeks.forEach((item, index) => {
@@ -586,9 +586,10 @@ export class OnboardingService {
     return undefined;
   }
 
-  public parseTargetRaceDate(
-    dateStr?: string,
-  ): { targetDate: Date | null; weeks: number } {
+  public parseTargetRaceDate(dateStr?: string): {
+    targetDate: Date | null;
+    weeks: number;
+  } {
     const defaultWeeks = 16; // 4 mois par défaut si pas de date d'objectif
     if (!dateStr || !dateStr.trim()) {
       return { targetDate: null, weeks: defaultWeeks };
@@ -730,7 +731,7 @@ export class OnboardingService {
     const peakKm = Math.max(44, Math.round(baseWeeklyKm * 1.55));
     const km1 = Math.round(startKm * 1.08); // Phase 1 : Socle aérobie progressif
     const km2 = Math.round(startKm * 1.32); // Phase 2 : Seuil et montée de charge
-    const km3 = Math.round(peakKm * 0.96);  // Phase 3 : Pic spécifique
+    const km3 = Math.round(peakKm * 0.96); // Phase 3 : Pic spécifique
     const km4 = Math.round(startKm * 0.72); // Phase 4 : Affûtage & fraîcheur
 
     return [

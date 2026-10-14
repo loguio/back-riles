@@ -117,4 +117,3 @@ export class OnboardingController {
     return this.onboardingService.resetOnboarding(userId);
   }
 }
-

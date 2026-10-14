@@ -1,16 +1,10 @@
-import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { ApiProperty } from "@nestjs/swagger";
 
 export type SafetyStatus =
-  | "safe"
-  | "warning_fatigue"
-  | "medical_stop"
-  | "unrealistic_goal";
+  "safe" | "warning_fatigue" | "medical_stop" | "unrealistic_goal";
 
 export type EligibilityStatus =
-  | "ELIGIBLE"
-  | "CONTEXT_NEEDED"
-  | "WARNING"
-  | "UNREALISTIC_DANGEROUS";
+  "ELIGIBLE" | "CONTEXT_NEEDED" | "WARNING" | "UNREALISTIC_DANGEROUS";
 
 export interface ExtractedGoalDto {
   title: string;
@@ -242,7 +236,12 @@ export interface LlmCoachReplyInput {
     ctlFitness?: number;
     tsbForm?: number;
     selectedSports?: string[];
-    rules?: Array<{ id?: string; title: string; description: string; icon: string }>;
+    rules?: Array<{
+      id?: string;
+      title: string;
+      description: string;
+      icon: string;
+    }>;
     trainingContext?: AthleteTrainingContextDto;
     todayDate?: string;
     pastCompletedWorkouts?: Array<{
