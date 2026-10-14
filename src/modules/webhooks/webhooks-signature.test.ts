@@ -1,7 +1,12 @@
 import { UnauthorizedException } from "@nestjs/common";
 import * as crypto from "crypto";
-import { WebhooksService } from "./webhooks.service";
-import { WebhooksController } from "./webhooks.controller";
+import {
+  APPLE_HEALTH_SECRET,
+  createWebhookHarness,
+  GARMIN_WEBHOOK_SECRET,
+  STRAVA_CLIENT_SECRET,
+  WEBHOOK_ENV,
+} from "./webhooks.harness";
 import type {
   AppleHealthSyncDto,
   GarminWebhookEventDto,
@@ -17,72 +22,6 @@ import type {
  * de secret configuré ferme la porte (fail-closed).
  */
 
-const STRAVA_SECRET = "test-strava-client-secret";
-const GARMIN_SECRET = "test-garmin-webhook-secret";
-const APPLE_SECRET = "test-apple-health-secret";
-
-const FULL_ENV: Record<string, string | undefined> = {
-  STRAVA_CLIENT_SECRET: STRAVA_SECRET,
-  GARMIN_WEBHOOK_SECRET: GARMIN_SECRET,
-  APPLE_HEALTH_SECRET: APPLE_SECRET,
-  STRAVA_VERIFY_TOKEN: "test-verify-token",
-};
-
-function createConfig(
-  env: Record<string, string | undefined> = FULL_ENV,
-): any {
-  return {
-    get: (key: string, fallback?: string) =>
-      env[key] !== undefined ? env[key] : fallback,
-  };
-}
-
-function createPrismaStub(): any {
-  return {
-    webhookEvent: { create: jest.fn().mockResolvedValue({ id: "wh-1" }) },
-    syncToken: {
-      findFirst: jest.fn().mockResolvedValue({
-        id: "st-1",
-        userId: "user-A",
-        provider: "strava",
-        externalUserId: "987654",
-        accessToken: null,
-        refreshToken: null,
-        expiresAt: null,
-        metadata: {},
-      }),
-      findUnique: jest.fn().mockResolvedValue(null),
-      update: jest.fn().mockResolvedValue({}),
-    },
-    workout: {
-      findFirst: jest.fn().mockResolvedValue(null),
-      create: jest.fn().mockResolvedValue({ id: "w-1" }),
-      update: jest.fn().mockResolvedValue({}),
-    },
-    user: {
-      findUnique: jest.fn().mockResolvedValue(null),
-      update: jest.fn().mockResolvedValue({}),
-    },
-  };
-}
-
-function createHarness(env?: Record<string, string | undefined>) {
-  const prisma = createPrismaStub();
-  const dataLake = { logTrainingInteraction: jest.fn() };
-  const llm = {
-    computeSessionTss: jest.fn().mockReturnValue(42),
-    updateBanisterLoad: jest.fn(),
-  };
-  const service = new WebhooksService(
-    prisma,
-    createConfig(env),
-    dataLake as any,
-    llm as any,
-  );
-  const controller = new WebhooksController(service);
-  return { controller, service, prisma, dataLake };
-}
-
 function stravaEvent(): StravaEventDto {
   return {
     object_type: "activity",
@@ -93,28 +32,28 @@ function stravaEvent(): StravaEventDto {
   };
 }
 
-function stravaSignature(rawBody: Buffer, secret = STRAVA_SECRET): string {
+function stravaSignature(
+  rawBody: Buffer,
+  secret = STRAVA_CLIENT_SECRET,
+): string {
   return `sha1=${crypto.createHmac("sha1", secret).update(rawBody).digest("hex")}`;
 }
 
 describe("RILES-005: Strava webhook signature verification", () => {
   it("rejects an unsigned Strava webhook with 401 and writes nothing", async () => {
-    const { controller, prisma } = createHarness();
+    const { controller, prisma } = createWebhookHarness();
     const event = stravaEvent();
     const rawBody = Buffer.from(JSON.stringify(event));
 
     await expect(
-      controller.handleStravaEvent(
-        { rawBody, headers: {} } as any,
-        event,
-      ),
+      controller.handleStravaEvent({ rawBody, headers: {} } as any, event),
     ).rejects.toThrow(UnauthorizedException);
     expect(prisma.webhookEvent.create).not.toHaveBeenCalled();
     expect(prisma.workout.create).not.toHaveBeenCalled();
   });
 
   it("rejects a Strava webhook whose signature does not match the raw body", async () => {
-    const { controller, prisma } = createHarness();
+    const { controller, prisma } = createWebhookHarness();
     const event = stravaEvent();
     // Signature calculée sur un corps différent : la charge a été falsifiée.
     const forgedBody = Buffer.from(JSON.stringify({ ...event, owner_id: 1 }));
@@ -122,7 +61,10 @@ describe("RILES-005: Strava webhook signature verification", () => {
 
     await expect(
       controller.handleStravaEvent(
-        { rawBody: forgedBody, headers: { "x-hub-signature": signature } } as any,
+        {
+          rawBody: forgedBody,
+          headers: { "x-hub-signature": signature },
+        } as any,
         event,
       ),
     ).rejects.toThrow("Invalid Strava webhook signature");
@@ -131,16 +73,18 @@ describe("RILES-005: Strava webhook signature verification", () => {
   });
 
   it("rejects the webhook fail-closed when STRAVA_CLIENT_SECRET is not configured", async () => {
-    const { controller, prisma } = createHarness({
-      ...FULL_ENV,
-      STRAVA_CLIENT_SECRET: undefined,
+    const { controller, prisma } = createWebhookHarness({
+      env: { ...WEBHOOK_ENV, STRAVA_CLIENT_SECRET: undefined },
     });
     const event = stravaEvent();
     const rawBody = Buffer.from(JSON.stringify(event));
 
     await expect(
       controller.handleStravaEvent(
-        { rawBody, headers: { "x-hub-signature": stravaSignature(rawBody) } } as any,
+        {
+          rawBody,
+          headers: { "x-hub-signature": stravaSignature(rawBody) },
+        } as any,
         event,
       ),
     ).rejects.toThrow("not configured");
@@ -148,7 +92,7 @@ describe("RILES-005: Strava webhook signature verification", () => {
   });
 
   it("processes a correctly signed Strava webhook", async () => {
-    const { controller, prisma } = createHarness();
+    const { controller, prisma } = createWebhookHarness();
     const event = stravaEvent();
     const rawBody = Buffer.from(JSON.stringify(event));
 
@@ -173,12 +117,15 @@ describe("RILES-005: Garmin webhook signature verification", () => {
     data: { distanceInMeters: 0, durationInSeconds: 0 },
   };
 
-  function garminSignature(rawBody: Buffer, secret = GARMIN_SECRET): string {
+  function garminSignature(
+    rawBody: Buffer,
+    secret = GARMIN_WEBHOOK_SECRET,
+  ): string {
     return crypto.createHmac("sha256", secret).update(rawBody).digest("base64");
   }
 
   it("rejects an unsigned Garmin webhook with 401 and writes nothing", async () => {
-    const { controller, prisma } = createHarness();
+    const { controller, prisma } = createWebhookHarness();
     const rawBody = Buffer.from(JSON.stringify(event));
 
     await expect(
@@ -188,7 +135,7 @@ describe("RILES-005: Garmin webhook signature verification", () => {
   });
 
   it("rejects a forged Garmin signature with 401 and writes nothing", async () => {
-    const { controller, prisma } = createHarness();
+    const { controller, prisma } = createWebhookHarness();
     const rawBody = Buffer.from(JSON.stringify(event));
 
     await expect(
@@ -204,7 +151,7 @@ describe("RILES-005: Garmin webhook signature verification", () => {
   });
 
   it("processes a correctly signed Garmin webhook", async () => {
-    const { controller, prisma } = createHarness();
+    const { controller, prisma } = createWebhookHarness();
     const rawBody = Buffer.from(JSON.stringify(event));
 
     const result = await controller.handleGarminEvent(
@@ -230,7 +177,7 @@ describe("RILES-005: Apple Health shared-secret verification", () => {
   };
 
   it("rejects an Apple Health sync without the shared secret and writes nothing", async () => {
-    const { controller, prisma } = createHarness();
+    const { controller, prisma } = createWebhookHarness();
 
     await expect(
       controller.handleAppleHealthSync({ headers: {} } as any, dto),
@@ -239,7 +186,7 @@ describe("RILES-005: Apple Health shared-secret verification", () => {
   });
 
   it("rejects a wrong Apple Health shared secret and writes nothing", async () => {
-    const { controller, prisma } = createHarness();
+    const { controller, prisma } = createWebhookHarness();
 
     await expect(
       controller.handleAppleHealthSync(
@@ -251,10 +198,10 @@ describe("RILES-005: Apple Health shared-secret verification", () => {
   });
 
   it("accepts the correct Apple Health shared secret", async () => {
-    const { controller, prisma } = createHarness();
+    const { controller, prisma } = createWebhookHarness();
 
     const result = await controller.handleAppleHealthSync(
-      { headers: { "x-apple-health-secret": APPLE_SECRET } } as any,
+      { headers: { "x-apple-health-secret": APPLE_HEALTH_SECRET } } as any,
       dto,
     );
 

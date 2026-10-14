@@ -40,6 +40,11 @@ export interface NormalizedExecutedWorkout {
 export class WebhooksService {
   private readonly logger = new Logger(WebhooksService.name);
 
+  /** Cache de déduplication en processus (RILES-006) : clé → horodatage. */
+  private readonly seenWebhookEvents = new Map<string, number>();
+  private static readonly DEDUPE_TTL_MS = 60 * 60 * 1000; // 1 heure
+  private static readonly DEDUPE_MAX_KEYS = 50_000;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
@@ -103,10 +108,7 @@ export class WebhooksService {
     rawBody: Buffer | string | undefined | null,
     signatureHeader: string | string[] | undefined,
   ): void {
-    const secret = this.requireWebhookSecret(
-      "STRAVA_CLIENT_SECRET",
-      "Strava",
-    );
+    const secret = this.requireWebhookSecret("STRAVA_CLIENT_SECRET", "Strava");
     const provided = WebhooksService.readHeader(signatureHeader);
     if (!rawBody || !provided) {
       throw new UnauthorizedException(
@@ -134,10 +136,7 @@ export class WebhooksService {
     rawBody: Buffer | string | undefined | null,
     signatureHeader: string | string[] | undefined,
   ): void {
-    const secret = this.requireWebhookSecret(
-      "GARMIN_WEBHOOK_SECRET",
-      "Garmin",
-    );
+    const secret = this.requireWebhookSecret("GARMIN_WEBHOOK_SECRET", "Garmin");
     const provided = WebhooksService.readHeader(signatureHeader);
     if (!rawBody || !provided) {
       throw new UnauthorizedException(
@@ -1003,43 +1002,57 @@ export class WebhooksService {
         : durationLabel;
 
     if (workout) {
-      await this.prisma.workout.update({
-        where: { id: workout.id },
-        data: {
-          status: WorkoutStatus.DONE,
-          isRestDay: false,
-          title:
-            executed.title ||
-            (workout.isRestDay ? "Course à pied synchronisée" : workout.title),
-          category:
-            executed.category ||
-            (workout.isRestDay ? "ENDURANCE FONDAMENTALE" : workout.category),
-          duration: durationLabel,
-          distance: distLabel,
-          targetPace: executed.actualPace,
-          externalActivityId: executed.externalActivityId,
-          sourceProvider: executed.sourceProvider,
-          actualDistanceKm: executed.actualDistanceKm,
-          actualDurationSec: executed.actualDurationSec,
-          actualPace: executed.actualPace,
-          actualAvgHeartRate: executed.actualAvgHeartRate,
-          actualMaxHeartRate: executed.actualMaxHeartRate,
-          actualElevationGain: executed.actualElevationGain,
-          actualCalories: executed.actualCalories,
-          actualCadence: executed.actualCadence,
-          actualSplitsJson: executed.actualSplitsJson ?? undefined,
-          completedAt: executed.completedAt,
-          tss: sessionTss,
-          tags: [
-            `${distLabel} réalisés`,
-            `Allure réelle : ${executed.actualPace}`,
-            ...(executed.actualAvgHeartRate
-              ? [`FC moy : ${executed.actualAvgHeartRate} bpm`]
-              : []),
-          ],
-          aiAdjustmentNote: `Séance réelle synchronisée via ${providerName} : ${executed.title || workout.title} (${distLabel} à ${paceLabel}${hrLabel} • Charge : ${sessionTss} TSS).`,
-        },
-      });
+      try {
+        await this.prisma.workout.update({
+          where: { id: workout.id },
+          data: {
+            status: WorkoutStatus.DONE,
+            isRestDay: false,
+            title:
+              executed.title ||
+              (workout.isRestDay
+                ? "Course à pied synchronisée"
+                : workout.title),
+            category:
+              executed.category ||
+              (workout.isRestDay ? "ENDURANCE FONDAMENTALE" : workout.category),
+            duration: durationLabel,
+            distance: distLabel,
+            targetPace: executed.actualPace,
+            externalActivityId: executed.externalActivityId,
+            sourceProvider: executed.sourceProvider,
+            actualDistanceKm: executed.actualDistanceKm,
+            actualDurationSec: executed.actualDurationSec,
+            actualPace: executed.actualPace,
+            actualAvgHeartRate: executed.actualAvgHeartRate,
+            actualMaxHeartRate: executed.actualMaxHeartRate,
+            actualElevationGain: executed.actualElevationGain,
+            actualCalories: executed.actualCalories,
+            actualCadence: executed.actualCadence,
+            actualSplitsJson: executed.actualSplitsJson ?? undefined,
+            completedAt: executed.completedAt,
+            tss: sessionTss,
+            tags: [
+              `${distLabel} réalisés`,
+              `Allure réelle : ${executed.actualPace}`,
+              ...(executed.actualAvgHeartRate
+                ? [`FC moy : ${executed.actualAvgHeartRate} bpm`]
+                : []),
+            ],
+            aiAdjustmentNote: `Séance réelle synchronisée via ${providerName} : ${executed.title || workout.title} (${distLabel} à ${paceLabel}${hrLabel} • Charge : ${sessionTss} TSS).`,
+          },
+        });
+      } catch (err: any) {
+        // RILES-006 : contrainte unique workouts.externalActivityId —
+        // l'activité est déjà synchronisée, on n'écrit pas une seconde fois.
+        if (WebhooksService.isUniqueViolation(err)) {
+          this.logger.warn(
+            `Workout update skipped: activity ${executed.externalActivityId} already synced (unique constraint)`,
+          );
+          return;
+        }
+        throw err;
+      }
     } else {
       const [yyyy, mmNum, dd] = executed.dateKey.split("-").map(Number);
       const mm = mmNum - 1;
@@ -1077,63 +1090,75 @@ export class WebhooksService {
         ((targetDate.getTime() - jan1.getTime()) / 86400000 + 1) / 7,
       );
 
-      await this.prisma.workout.create({
-        data: {
-          userId,
-          dateKey: executed.dateKey,
-          dayName: dayNamesShort[dow],
-          dayNumber: dd,
-          month: mm,
-          year: yyyy,
-          weekNumber,
-          fullDateLabel: `${dayNamesFull[dow]} ${dd} ${monthNamesFull[mm]}`,
-          timeLabel: "Synchronisé " + providerName,
-          status: WorkoutStatus.DONE,
-          isRestDay: false,
-          category: executed.category || "ENDURANCE FONDAMENTALE",
-          title: executed.title || "Course à pied " + providerName,
-          duration: durationLabel,
-          distance: distLabel,
-          targetPace: executed.actualPace,
-          targetZoneLabel: "Zone 2",
-          targetZoneBpm: executed.actualAvgHeartRate
-            ? `${executed.actualAvgHeartRate - 5}–${executed.actualAvgHeartRate + 5} bpm`
-            : "135–150 bpm",
-          targetZoneSegments: [
-            { color: "#93C5FD", flex: 4 },
-            { color: "#34D399", flex: 2 },
-          ],
-          effortBlocks: [
-            {
-              title: "Course continue",
-              durationLabel,
-              type: "interval",
-              flexRatio: 1,
-            },
-          ],
-          externalActivityId: executed.externalActivityId,
-          sourceProvider: executed.sourceProvider,
-          actualDistanceKm: executed.actualDistanceKm,
-          actualDurationSec: executed.actualDurationSec,
-          actualPace: executed.actualPace,
-          actualAvgHeartRate: executed.actualAvgHeartRate,
-          actualMaxHeartRate: executed.actualMaxHeartRate,
-          actualElevationGain: executed.actualElevationGain,
-          actualCalories: executed.actualCalories,
-          actualCadence: executed.actualCadence,
-          actualSplitsJson: executed.actualSplitsJson ?? undefined,
-          completedAt: executed.completedAt,
-          tss: sessionTss,
-          tags: [
-            `${distLabel} réalisés`,
-            `Allure : ${executed.actualPace}`,
-            ...(executed.actualAvgHeartRate
-              ? [`FC moy : ${executed.actualAvgHeartRate} bpm`]
-              : []),
-          ],
-          aiAdjustmentNote: `Séance réelle synchronisée via ${providerName} : ${executed.title || "Course"} (${distLabel} à ${paceLabel}${hrLabel} • Charge : ${sessionTss} TSS).`,
-        },
-      });
+      try {
+        await this.prisma.workout.create({
+          data: {
+            userId,
+            dateKey: executed.dateKey,
+            dayName: dayNamesShort[dow],
+            dayNumber: dd,
+            month: mm,
+            year: yyyy,
+            weekNumber,
+            fullDateLabel: `${dayNamesFull[dow]} ${dd} ${monthNamesFull[mm]}`,
+            timeLabel: "Synchronisé " + providerName,
+            status: WorkoutStatus.DONE,
+            isRestDay: false,
+            category: executed.category || "ENDURANCE FONDAMENTALE",
+            title: executed.title || "Course à pied " + providerName,
+            duration: durationLabel,
+            distance: distLabel,
+            targetPace: executed.actualPace,
+            targetZoneLabel: "Zone 2",
+            targetZoneBpm: executed.actualAvgHeartRate
+              ? `${executed.actualAvgHeartRate - 5}–${executed.actualAvgHeartRate + 5} bpm`
+              : "135–150 bpm",
+            targetZoneSegments: [
+              { color: "#93C5FD", flex: 4 },
+              { color: "#34D399", flex: 2 },
+            ],
+            effortBlocks: [
+              {
+                title: "Course continue",
+                durationLabel,
+                type: "interval",
+                flexRatio: 1,
+              },
+            ],
+            externalActivityId: executed.externalActivityId,
+            sourceProvider: executed.sourceProvider,
+            actualDistanceKm: executed.actualDistanceKm,
+            actualDurationSec: executed.actualDurationSec,
+            actualPace: executed.actualPace,
+            actualAvgHeartRate: executed.actualAvgHeartRate,
+            actualMaxHeartRate: executed.actualMaxHeartRate,
+            actualElevationGain: executed.actualElevationGain,
+            actualCalories: executed.actualCalories,
+            actualCadence: executed.actualCadence,
+            actualSplitsJson: executed.actualSplitsJson ?? undefined,
+            completedAt: executed.completedAt,
+            tss: sessionTss,
+            tags: [
+              `${distLabel} réalisés`,
+              `Allure : ${executed.actualPace}`,
+              ...(executed.actualAvgHeartRate
+                ? [`FC moy : ${executed.actualAvgHeartRate} bpm`]
+                : []),
+            ],
+            aiAdjustmentNote: `Séance réelle synchronisée via ${providerName} : ${executed.title || "Course"} (${distLabel} à ${paceLabel}${hrLabel} • Charge : ${sessionTss} TSS).`,
+          },
+        });
+      } catch (err: any) {
+        // RILES-006 : contrainte unique workouts.externalActivityId —
+        // l'activité est déjà synchronisée, on n'écrit pas une seconde fois.
+        if (WebhooksService.isUniqueViolation(err)) {
+          this.logger.warn(
+            `Workout creation skipped: activity ${executed.externalActivityId} already synced (unique constraint)`,
+          );
+          return;
+        }
+        throw err;
+      }
     }
 
     // Mise à jour du kilométrage total et de la charge physiologique Banister (ATL / CTL / TSB / Readiness)
@@ -2447,23 +2472,124 @@ export class WebhooksService {
     };
   }
 
+  // ---------------------------------------------------------------------------
+  // RILES-006 : réception idempotente (anti-rejeu) + utilisateur résolu
+  // côté serveur via le mapping SyncToken, jamais depuis le payload.
+  // ---------------------------------------------------------------------------
+
+  /** Empreinte déterministe d'un payload (clé de déduplication de repli). */
+  private static payloadFingerprint(payload: unknown): string {
+    return crypto
+      .createHash("sha256")
+      .update(JSON.stringify(payload) ?? "")
+      .digest("hex")
+      .slice(0, 40);
+  }
+
+  /** Violation de contrainte unique Prisma (P2002). */
+  private static isUniqueViolation(err: any): boolean {
+    return err?.code === "P2002" || err?.meta?.code === "P2002";
+  }
+
+  private dedupeKey(
+    provider: string,
+    eventType: string,
+    objectId: string,
+  ): string {
+    return `${provider}|${eventType}|${objectId}`;
+  }
+
+  private markWebhookEventSeen(key: string, now: number): void {
+    if (this.seenWebhookEvents.size >= WebhooksService.DEDUPE_MAX_KEYS) {
+      for (const [k, ts] of this.seenWebhookEvents) {
+        if (now - ts > WebhooksService.DEDUPE_TTL_MS) {
+          this.seenWebhookEvents.delete(k);
+        }
+      }
+      while (this.seenWebhookEvents.size >= WebhooksService.DEDUPE_MAX_KEYS) {
+        const oldest = this.seenWebhookEvents.keys().next();
+        if (oldest.done) break;
+        this.seenWebhookEvents.delete(oldest.value);
+      }
+    }
+    this.seenWebhookEvents.set(key, now);
+  }
+
+  /**
+   * Enregistre la livraison si elle est nouvelle et retourne `true` si c'est
+   * un doublon (rejeu) — auquel cas aucune écriture métier n'a eu lieu.
+   * 1) cache en processus : rejoue immédiat sans requête SQL ;
+   * 2) contrainte unique (provider, eventType, objectId) : autorité en base.
+   */
+  private async recordWebhookEvent(data: {
+    provider: string;
+    eventType: string;
+    objectId: string;
+    payload: unknown;
+  }): Promise<boolean> {
+    const key = this.dedupeKey(data.provider, data.eventType, data.objectId);
+    const now = Date.now();
+    const seenAt = this.seenWebhookEvents.get(key);
+    if (seenAt !== undefined) {
+      if (now - seenAt <= WebhooksService.DEDUPE_TTL_MS) {
+        return true;
+      }
+      this.seenWebhookEvents.delete(key);
+    }
+
+    try {
+      await this.prisma.webhookEvent.create({
+        data: {
+          provider: data.provider,
+          eventType: data.eventType,
+          objectId: data.objectId,
+          payload: data.payload as any,
+          processed: true,
+          processedAt: new Date(),
+        },
+      });
+    } catch (err: any) {
+      if (!WebhooksService.isUniqueViolation(err)) {
+        throw err;
+      }
+      this.logger.warn(`Duplicate ${data.provider} webhook dropped: ${key}`);
+      this.markWebhookEventSeen(key, now);
+      return true;
+    }
+
+    this.markWebhookEventSeen(key, now);
+    return false;
+  }
+
   async handleStravaEvent(event: StravaEventDto): Promise<WebhookResponseDto> {
     this.logger.log(`Received Strava webhook event: ${JSON.stringify(event)}`);
 
-    await this.prisma.webhookEvent.create({
-      data: {
+    const eventType = `${event.object_type}.${event.aspect_type}`;
+    const objectId =
+      event.object_id !== undefined && event.object_id !== null
+        ? String(event.object_id)
+        : WebhooksService.payloadFingerprint(event);
+
+    if (
+      await this.recordWebhookEvent({
         provider: "strava",
-        eventType: `${event.object_type}.${event.aspect_type}`,
-        payload: event as any,
-        processed: true,
-        processedAt: new Date(),
-      },
-    });
+        eventType,
+        objectId,
+        payload: event,
+      })
+    ) {
+      return {
+        success: false,
+        message: "Duplicate Strava delivery ignored (idempotent replay)",
+      };
+    }
 
     if (
       event.object_type === "activity" &&
       (event.aspect_type === "create" || event.aspect_type === "update")
     ) {
+      // RILES-006 : l'utilisateur cible vient exclusivement du mapping serveur
+      // SyncToken (athlete/owner du fournisseur), jamais du payload.
       const syncToken = await this.prisma.syncToken.findFirst({
         where: {
           provider: "strava",
@@ -2471,7 +2597,17 @@ export class WebhooksService {
         },
       });
 
-      const userId = syncToken?.userId || "user-01";
+      if (!syncToken?.userId) {
+        this.logger.warn(
+          `Strava event dropped: no SyncToken linked to athlete/owner ${event.owner_id} (RILES-006)`,
+        );
+        return {
+          success: false,
+          message: "Event ignored: no linked Strava account for this athlete",
+        };
+      }
+
+      const userId = syncToken.userId;
 
       // 1. Récupération complète des données de l'activité depuis l'API Strava (ou payload de test)
       const stravaActivity = await this.fetchStravaActivityDetails(
@@ -2557,24 +2693,45 @@ export class WebhooksService {
   ): Promise<WebhookResponseDto> {
     this.logger.log(`Received Garmin webhook event for user: ${event.userId}`);
 
-    await this.prisma.webhookEvent.create({
-      data: {
+    const d = event.data || {};
+    const externalId = d.activityId ?? d.summaryId;
+    const objectId =
+      externalId !== undefined && externalId !== null
+        ? String(externalId)
+        : WebhooksService.payloadFingerprint(event);
+
+    if (
+      await this.recordWebhookEvent({
         provider: "garmin",
         eventType: event.type,
-        payload: event as any,
-        processed: true,
-        processedAt: new Date(),
-      },
-    });
+        objectId,
+        payload: event,
+      })
+    ) {
+      return {
+        success: false,
+        message: "Duplicate Garmin delivery ignored (idempotent replay)",
+      };
+    }
 
+    // RILES-006 : utilisateur résolu via le mapping fournisseur → utilisateur
+    // (SyncToken.externalUserId), jamais depuis event.userId du payload.
     const syncToken = await this.prisma.syncToken.findFirst({
       where: {
         provider: "garmin",
-        OR: [{ externalUserId: event.userId }, { userId: event.userId }],
+        externalUserId: event.userId,
       },
     });
-    const userId = syncToken?.userId || event.userId || "user-01";
-    const d = event.data || {};
+    if (!syncToken?.userId) {
+      this.logger.warn(
+        `Garmin event dropped: no SyncToken linked to provider user ${event.userId} (RILES-006)`,
+      );
+      return {
+        success: false,
+        message: "Event ignored: no linked Garmin account for this user",
+      };
+    }
+    const userId = syncToken.userId;
 
     // Sauvegarde du seuil lactique / VO2Max Garmin si présents dans le payload
     if (syncToken && (d.lactateThresholdPace || d.vo2Max || d.heartRateZones)) {
@@ -2612,7 +2769,7 @@ export class WebhooksService {
 
       await this.persistExecutedWorkoutAndLog(userId, {
         externalActivityId: String(
-          d.activityId ?? d.summaryId ?? `garmin-${Date.now()}`,
+          d.activityId ?? d.summaryId ?? WebhooksService.payloadFingerprint(d),
         ),
         sourceProvider: "garmin",
         actualDistanceKm,
@@ -2656,15 +2813,43 @@ export class WebhooksService {
   ): Promise<WebhookResponseDto> {
     this.logger.log(`Received Apple Health sync for user: ${dto.userId}`);
 
-    await this.prisma.webhookEvent.create({
-      data: {
+    const meta = dto.metadata || {};
+    const objectId = meta.workoutUuid
+      ? String(meta.workoutUuid)
+      : WebhooksService.payloadFingerprint(dto);
+
+    if (
+      await this.recordWebhookEvent({
         provider: "apple_health",
         eventType: dto.activityType,
-        payload: dto as any,
-        processed: true,
-        processedAt: new Date(),
+        objectId,
+        payload: dto,
+      })
+    ) {
+      return {
+        success: false,
+        message: "Duplicate Apple Health delivery ignored (idempotent replay)",
+      };
+    }
+
+    // RILES-006 : utilisateur résolu via SyncToken.externalUserId du mapping
+    // serveur, jamais depuis dto.userId du payload.
+    const syncToken = await this.prisma.syncToken.findFirst({
+      where: {
+        provider: "apple_health",
+        externalUserId: dto.userId,
       },
     });
+    if (!syncToken?.userId) {
+      this.logger.warn(
+        `Apple Health sync dropped: no SyncToken linked to provider user ${dto.userId} (RILES-006)`,
+      );
+      return {
+        success: false,
+        message: "Event ignored: no linked Apple Health account for this user",
+      };
+    }
+    const userId = syncToken.userId;
 
     if (dto.activityType === "running" || dto.distanceMeters > 0) {
       const actualDistanceKm = Number((dto.distanceMeters / 1000).toFixed(2));
@@ -2673,12 +2858,13 @@ export class WebhooksService {
         actualDistanceKm,
         actualDurationSec,
       );
-      const meta = dto.metadata || {};
       const completedAt = dto.startDate ? new Date(dto.startDate) : new Date();
 
-      await this.persistExecutedWorkoutAndLog(dto.userId, {
+      await this.persistExecutedWorkoutAndLog(userId, {
         externalActivityId: String(
-          meta.workoutUuid || `apple-${completedAt.getTime()}`,
+          meta.workoutUuid
+            ? meta.workoutUuid
+            : WebhooksService.payloadFingerprint(dto),
         ),
         sourceProvider: "apple_health",
         actualDistanceKm,
