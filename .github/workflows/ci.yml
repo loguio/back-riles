@@ -39,3 +39,48 @@ jobs:
 
       - name: Test
         run: npm test
+
+  # RILES-030 : les migrations Prisma doivent s'appliquer sur une base vide
+  # et ne pas dériver de prisma/schema.prisma. Le schéma n'est jamais poussé
+  # en aveugle : uniquement les migrations versionnées.
+  migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: riles_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/riles_ci?schema=public
+      DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5432/riles_ci?schema=public
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Apply migrations on an empty database
+        run: npx prisma migrate deploy
+
+      - name: Fail on schema/migration drift
+        run: npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code

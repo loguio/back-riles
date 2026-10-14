@@ -19,10 +19,13 @@
     "start:prod": "node dist/src/main.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "ts-node prisma/seed.ts",
+    "prisma:seed:dev": "ts-node prisma/seed.ts --force",
     "prisma:studio": "prisma studio",
     "db:clean": "ts-node prisma/clean.ts",
-    "db:wipe": "ts-node prisma/clean.ts"
+    "db:wipe": "ts-node prisma/clean.ts",
+    "db:wipe:dev": "ts-node prisma/clean.ts --force"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",
@@ -66,6 +69,6 @@
     "typescript-eslint": "^8.71.2"
   },
   "prisma": {
-    "seed": "ts-node prisma/seed.ts"
+    "seed": "ts-node prisma/seed.ts --force"
   }
 }

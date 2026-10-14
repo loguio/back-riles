@@ -12,6 +12,7 @@ import {
   GenerateMultiWeekPlanResponseDto,
 } from "./dto/workout.dto";
 import { WorkoutStatus } from "@prisma/client";
+import { runInTransaction } from "../../prisma/transaction";
 
 @Injectable()
 export class WorkoutsService {
@@ -555,108 +556,113 @@ export class WorkoutsService {
     });
 
     // Sauvegarde automatique en base PostgreSQL sans écraser les séances déjà réalisées (DONE)
-    const existingDoneWorkouts = await this.prisma.workout.findMany({
-      where: {
-        userId,
-        dateKey: { in: calendarDays.map((c) => c.dateKey) },
-        status: WorkoutStatus.DONE,
-      },
-      select: { dateKey: true },
-    });
-    const doneDateKeys = new Set(existingDoneWorkouts.map((w) => w.dateKey));
-
-    for (const item of llmPlan.workouts) {
-      if (doneDateKeys.has(item.dateKey)) {
-        continue; // On conserve précieusement les vraies séances passées (Strava 6 mois)
-      }
-
-      const todayDateKey = new Date().toISOString().split("T")[0];
-      const isToday = item.dateKey === todayDateKey;
-      const status = item.isRestDay
-        ? WorkoutStatus.REST
-        : isToday
-          ? WorkoutStatus.SELECTED
-          : WorkoutStatus.UPCOMING;
-
-      await this.prisma.workout.upsert({
+    // RILES-031 : l'écriture complète est atomique (une seule transaction).
+    // En cas d'échec en cours de sauvegarde, on retrouve l'ancien plan intact :
+    // jamais un plan à moitié écrasé ni un message de chat orphelin.
+    await runInTransaction(this.prisma, async (tx) => {
+      const existingDoneWorkouts = await tx.workout.findMany({
         where: {
-          userId_dateKey: {
+          userId,
+          dateKey: { in: calendarDays.map((c) => c.dateKey) },
+          status: WorkoutStatus.DONE,
+        },
+        select: { dateKey: true },
+      });
+      const doneDateKeys = new Set(existingDoneWorkouts.map((w) => w.dateKey));
+
+      for (const item of llmPlan.workouts) {
+        if (doneDateKeys.has(item.dateKey)) {
+          continue; // On conserve précieusement les vraies séances passées (Strava 6 mois)
+        }
+
+        const todayDateKey = new Date().toISOString().split("T")[0];
+        const isToday = item.dateKey === todayDateKey;
+        const status = item.isRestDay
+          ? WorkoutStatus.REST
+          : isToday
+            ? WorkoutStatus.SELECTED
+            : WorkoutStatus.UPCOMING;
+
+        await tx.workout.upsert({
+          where: {
+            userId_dateKey: {
+              userId,
+              dateKey: item.dateKey,
+            },
+          },
+          update: {
+            dayName: item.dayName,
+            dayNumber: item.dayNumber,
+            month: item.month,
+            year: item.year,
+            weekNumber: item.weekNumber,
+            fullDateLabel: item.fullDateLabel,
+            timeLabel: item.timeLabel,
+            status,
+            isRestDay: item.isRestDay,
+            category: item.category,
+            title: item.title,
+            duration: item.duration,
+            distance: item.distance,
+            targetPace: item.targetPace,
+            targetZoneLabel: item.targetZoneLabel,
+            targetZoneBpm: item.targetZoneBpm,
+            targetZoneSegments: item.targetZoneSegments as any,
+            pinPositionPercent: item.pinPositionPercent,
+            effortBlocks: item.effortBlocks as any,
+            tags: item.tags,
+            aiAdjustmentNote: item.aiAdjustmentNote,
+            tss: item.tss,
+          },
+          create: {
             userId,
             dateKey: item.dateKey,
-          },
-        },
-        update: {
-          dayName: item.dayName,
-          dayNumber: item.dayNumber,
-          month: item.month,
-          year: item.year,
-          weekNumber: item.weekNumber,
-          fullDateLabel: item.fullDateLabel,
-          timeLabel: item.timeLabel,
-          status,
-          isRestDay: item.isRestDay,
-          category: item.category,
-          title: item.title,
-          duration: item.duration,
-          distance: item.distance,
-          targetPace: item.targetPace,
-          targetZoneLabel: item.targetZoneLabel,
-          targetZoneBpm: item.targetZoneBpm,
-          targetZoneSegments: item.targetZoneSegments as any,
-          pinPositionPercent: item.pinPositionPercent,
-          effortBlocks: item.effortBlocks as any,
-          tags: item.tags,
-          aiAdjustmentNote: item.aiAdjustmentNote,
-          tss: item.tss,
-        },
-        create: {
-          userId,
-          dateKey: item.dateKey,
-          dayName: item.dayName,
-          dayNumber: item.dayNumber,
-          month: item.month,
-          year: item.year,
-          weekNumber: item.weekNumber,
-          fullDateLabel: item.fullDateLabel,
-          timeLabel: item.timeLabel,
-          status,
-          isRestDay: item.isRestDay,
-          category: item.category,
-          title: item.title,
-          duration: item.duration,
-          distance: item.distance,
-          targetPace: item.targetPace,
-          targetZoneLabel: item.targetZoneLabel,
-          targetZoneBpm: item.targetZoneBpm,
-          targetZoneSegments: item.targetZoneSegments as any,
-          pinPositionPercent: item.pinPositionPercent,
-          effortBlocks: item.effortBlocks as any,
-          tags: item.tags,
-          aiAdjustmentNote: item.aiAdjustmentNote,
-          tss: item.tss,
-        },
-      });
-    }
-
-    // Si le chat est encore vierge, on place uniquement un message d'accueil simple et naturel
-    if (user) {
-      const existingCount = await this.prisma.chatMessage.count({
-        where: { userId },
-      });
-      if (existingCount === 0) {
-        await this.prisma.chatMessage.create({
-          data: {
-            userId,
-            sender: "coach",
-            text: "Salut ! Je suis ton coach IA. Dis-moi si tu as une question sur une séance, tes sensations ou si tu souhaites adapter ton planning.",
-            timestamp: new Date().toLocaleTimeString("fr-FR", {
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
+            dayName: item.dayName,
+            dayNumber: item.dayNumber,
+            month: item.month,
+            year: item.year,
+            weekNumber: item.weekNumber,
+            fullDateLabel: item.fullDateLabel,
+            timeLabel: item.timeLabel,
+            status,
+            isRestDay: item.isRestDay,
+            category: item.category,
+            title: item.title,
+            duration: item.duration,
+            distance: item.distance,
+            targetPace: item.targetPace,
+            targetZoneLabel: item.targetZoneLabel,
+            targetZoneBpm: item.targetZoneBpm,
+            targetZoneSegments: item.targetZoneSegments as any,
+            pinPositionPercent: item.pinPositionPercent,
+            effortBlocks: item.effortBlocks as any,
+            tags: item.tags,
+            aiAdjustmentNote: item.aiAdjustmentNote,
+            tss: item.tss,
           },
         });
       }
-    }
+
+      // Si le chat est encore vierge, on place uniquement un message d'accueil simple et naturel
+      if (user) {
+        const existingCount = await tx.chatMessage.count({
+          where: { userId },
+        });
+        if (existingCount === 0) {
+          await tx.chatMessage.create({
+            data: {
+              userId,
+              sender: "coach",
+              text: "Salut ! Je suis ton coach IA. Dis-moi si tu as une question sur une séance, tes sensations ou si tu souhaites adapter ton planning.",
+              timestamp: new Date().toLocaleTimeString("fr-FR", {
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+            },
+          });
+        }
+      }
+    });
 
     this.dataLakeService.logTrainingInteraction({
       userId,
