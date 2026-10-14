@@ -20,6 +20,7 @@ import {
   WebhookResponseDto,
 } from "./dto/webhook.dto";
 import { WorkoutStatus } from "@prisma/client";
+import { runInTransaction } from "../../prisma/transaction";
 
 export interface NormalizedExecutedWorkout {
   externalActivityId: string;
@@ -488,106 +489,115 @@ export class WebhooksService {
         ? this.mapLiveStravaActivitiesToWorkouts(userId, liveActivities)
         : [];
 
-    if (workoutsToPersist.length > 0) {
-      // Insertion rapide en bloc (createMany avec skipDuplicates) pour les semaines passées
-      await this.prisma.workout.createMany({
-        data: workoutsToPersist,
-        skipDuplicates: true,
+    // 3-6. RILES-031 : import atomique. Le createMany d'historique, les
+    // upserts des séances réalisées, la mise à jour du profil utilisateur et
+    // le résumé SyncToken sont écrits dans UNE seule transaction : un échec
+    // en cours d'import annule tout, on ne garde jamais un mélange d'anciennes
+    // et de nouvelles séances.
+    const summary = await runInTransaction(this.prisma, async (tx) => {
+      if (workoutsToPersist.length > 0) {
+        // Insertion rapide en bloc (createMany avec skipDuplicates) pour les semaines passées
+        await tx.workout.createMany({
+          data: workoutsToPersist,
+          skipDuplicates: true,
+        });
+
+        // Mise à jour explicite de toutes les séances réalisées de l'historique Strava (notamment aujourd'hui et les dernières semaines)
+        const recentDone = workoutsToPersist.filter(
+          (w) => w.status === WorkoutStatus.DONE,
+        );
+        for (const cw of recentDone) {
+          await tx.workout.upsert({
+            where: { userId_dateKey: { userId, dateKey: cw.dateKey } },
+            update: {
+              status: WorkoutStatus.DONE,
+              isRestDay: false,
+              title: cw.title,
+              category: cw.category,
+              duration: cw.duration,
+              distance: cw.distance,
+              targetPace: cw.targetPace,
+              targetZoneLabel: cw.targetZoneLabel,
+              targetZoneBpm: cw.targetZoneBpm,
+              targetZoneSegments: cw.targetZoneSegments,
+              effortBlocks: cw.effortBlocks,
+              sourceProvider: "strava",
+              externalActivityId: cw.externalActivityId,
+              actualDistanceKm: cw.actualDistanceKm,
+              actualDurationSec: cw.actualDurationSec,
+              actualPace: cw.actualPace,
+              actualAvgHeartRate: cw.actualAvgHeartRate,
+              actualMaxHeartRate: cw.actualMaxHeartRate,
+              actualElevationGain: cw.actualElevationGain,
+              actualCalories: cw.actualCalories,
+              actualCadence: cw.actualCadence,
+              tss: cw.tss,
+              completedAt: cw.completedAt,
+              sportType: cw.sportType,
+              isCommute: cw.isCommute,
+              secondaryActivities: cw.secondaryActivities ?? undefined,
+              tags: cw.tags,
+              aiAdjustmentNote: cw.aiAdjustmentNote,
+            },
+            create: cw,
+          });
+        }
+      }
+
+      // 4. Agrégation complète des 6 derniers mois depuis les séances réellement stockées en base
+      const allSixMonthsWorkouts = await tx.workout.findMany({
+        where: {
+          userId,
+          status: WorkoutStatus.DONE,
+          isRestDay: false,
+        },
+        orderBy: { dateKey: "asc" },
       });
 
-      // Mise à jour explicite de toutes les séances réalisées de l'historique Strava (notamment aujourd'hui et les dernières semaines)
-      const recentDone = workoutsToPersist.filter(
-        (w) => w.status === WorkoutStatus.DONE,
+      const computedSummary = this.computeSixMonthsSummaryFromWorkouts(
+        allSixMonthsWorkouts,
+        sourceMode,
       );
-      for (const cw of recentDone) {
-        await this.prisma.workout.upsert({
-          where: { userId_dateKey: { userId, dateKey: cw.dateKey } },
-          update: {
-            status: WorkoutStatus.DONE,
-            isRestDay: false,
-            title: cw.title,
-            category: cw.category,
-            duration: cw.duration,
-            distance: cw.distance,
-            targetPace: cw.targetPace,
-            targetZoneLabel: cw.targetZoneLabel,
-            targetZoneBpm: cw.targetZoneBpm,
-            targetZoneSegments: cw.targetZoneSegments,
-            effortBlocks: cw.effortBlocks,
-            sourceProvider: "strava",
-            externalActivityId: cw.externalActivityId,
-            actualDistanceKm: cw.actualDistanceKm,
-            actualDurationSec: cw.actualDurationSec,
-            actualPace: cw.actualPace,
-            actualAvgHeartRate: cw.actualAvgHeartRate,
-            actualMaxHeartRate: cw.actualMaxHeartRate,
-            actualElevationGain: cw.actualElevationGain,
-            actualCalories: cw.actualCalories,
-            actualCadence: cw.actualCadence,
-            tss: cw.tss,
-            completedAt: cw.completedAt,
-            sportType: cw.sportType,
-            isCommute: cw.isCommute,
-            secondaryActivities: cw.secondaryActivities ?? undefined,
-            tags: cw.tags,
-            aiAdjustmentNote: cw.aiAdjustmentNote,
+
+      // 5. Mise à jour du profil User (totalKm 6 mois, activeWeeks, charge Banister réelle CTL/ATL/TSB)
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          totalKm: computedSummary.totalDistanceKm,
+          activeWeeks: computedSummary.activeWeeks,
+          ctlFitness: computedSummary.banisterLoad.ctlFitness,
+          atlFatigue: computedSummary.banisterLoad.atlFatigue,
+          tsbForm: computedSummary.banisterLoad.tsbForm,
+          readinessScore: computedSummary.banisterLoad.readinessScore,
+        },
+      });
+
+      // 6. Sauvegarde du résumé des 6 mois dans SyncToken.metadata pour l'injecter partout dans le contexte IA
+      const existingMeta = (syncToken?.metadata as any) || {};
+      await tx.syncToken.upsert({
+        where: { userId_provider: { userId, provider: "strava" } },
+        update: {
+          isConnected: true,
+          metadata: {
+            ...existingMeta,
+            sixMonthsSummary: computedSummary as any,
+            lastSyncedAt: computedSummary.syncedAt,
+            pushToken: options?.pushToken || existingMeta.pushToken || null,
           },
-          create: cw,
-        });
-      }
-    }
-
-    // 4. Agrégation complète des 6 derniers mois depuis les séances réellement stockées en base
-    const allSixMonthsWorkouts = await this.prisma.workout.findMany({
-      where: {
-        userId,
-        status: WorkoutStatus.DONE,
-        isRestDay: false,
-      },
-      orderBy: { dateKey: "asc" },
-    });
-
-    const summary = this.computeSixMonthsSummaryFromWorkouts(
-      allSixMonthsWorkouts,
-      sourceMode,
-    );
-
-    // 5. Mise à jour du profil User (totalKm 6 mois, activeWeeks, charge Banister réelle CTL/ATL/TSB)
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        totalKm: summary.totalDistanceKm,
-        activeWeeks: summary.activeWeeks,
-        ctlFitness: summary.banisterLoad.ctlFitness,
-        atlFatigue: summary.banisterLoad.atlFatigue,
-        tsbForm: summary.banisterLoad.tsbForm,
-        readinessScore: summary.banisterLoad.readinessScore,
-      },
-    });
-
-    // 6. Sauvegarde du résumé des 6 mois dans SyncToken.metadata pour l'injecter partout dans le contexte IA
-    const existingMeta = (syncToken?.metadata as any) || {};
-    await this.prisma.syncToken.upsert({
-      where: { userId_provider: { userId, provider: "strava" } },
-      update: {
-        isConnected: true,
-        metadata: {
-          ...existingMeta,
-          sixMonthsSummary: summary as any,
-          lastSyncedAt: summary.syncedAt,
-          pushToken: options?.pushToken || existingMeta.pushToken || null,
         },
-      },
-      create: {
-        userId,
-        provider: "strava",
-        isConnected: true,
-        metadata: {
-          sixMonthsSummary: summary as any,
-          lastSyncedAt: summary.syncedAt,
-          pushToken: options?.pushToken || null,
+        create: {
+          userId,
+          provider: "strava",
+          isConnected: true,
+          metadata: {
+            sixMonthsSummary: computedSummary as any,
+            lastSyncedAt: computedSummary.syncedAt,
+            pushToken: options?.pushToken || null,
+          },
         },
-      },
+      });
+
+      return computedSummary;
     });
 
     // 7. Archivage automatique complet dans le Data Lake
@@ -868,75 +878,82 @@ export class WebhooksService {
       userId,
       recentActivities,
     );
-    const savedWorkouts: any[] = [];
+    // RILES-031 : un lot d'activités est importé de façon atomique — les
+    // upserts, le recalcul du kilométrage et la date de dernière
+    // synchronisation sont écrits ensemble ou pas du tout.
+    const savedWorkouts = await runInTransaction(this.prisma, async (tx) => {
+      const saved: any[] = [];
 
-    for (const w of mappedWorkouts) {
-      const upserted = await this.prisma.workout.upsert({
-        where: { userId_dateKey: { userId, dateKey: w.dateKey } },
-        update: {
+      for (const w of mappedWorkouts) {
+        const upserted = await tx.workout.upsert({
+          where: { userId_dateKey: { userId, dateKey: w.dateKey } },
+          update: {
+            status: WorkoutStatus.DONE,
+            isRestDay: false,
+            title: w.title,
+            category: w.category,
+            duration: w.duration,
+            distance: w.distance,
+            targetPace: w.targetPace,
+            targetZoneLabel: w.targetZoneLabel,
+            targetZoneBpm: w.targetZoneBpm,
+            targetZoneSegments: w.targetZoneSegments,
+            effortBlocks: w.effortBlocks,
+            sourceProvider: "strava",
+            externalActivityId: w.externalActivityId,
+            actualDistanceKm: w.actualDistanceKm,
+            actualDurationSec: w.actualDurationSec,
+            actualPace: w.actualPace,
+            actualAvgHeartRate: w.actualAvgHeartRate,
+            actualMaxHeartRate: w.actualMaxHeartRate,
+            actualElevationGain: w.actualElevationGain,
+            actualCalories: w.actualCalories,
+            actualCadence: w.actualCadence,
+            tss: w.tss,
+            completedAt: w.completedAt,
+            sportType: w.sportType,
+            isCommute: w.isCommute,
+            secondaryActivities: w.secondaryActivities ?? undefined,
+            tags: w.tags,
+            aiAdjustmentNote: w.aiAdjustmentNote,
+          },
+          create: w,
+        });
+        saved.push(upserted);
+      }
+
+      // Recalcul du kilométrage total utilisateur (course à pied uniquement)
+      const allDone = await tx.workout.findMany({
+        where: {
+          userId,
           status: WorkoutStatus.DONE,
           isRestDay: false,
-          title: w.title,
-          category: w.category,
-          duration: w.duration,
-          distance: w.distance,
-          targetPace: w.targetPace,
-          targetZoneLabel: w.targetZoneLabel,
-          targetZoneBpm: w.targetZoneBpm,
-          targetZoneSegments: w.targetZoneSegments,
-          effortBlocks: w.effortBlocks,
-          sourceProvider: "strava",
-          externalActivityId: w.externalActivityId,
-          actualDistanceKm: w.actualDistanceKm,
-          actualDurationSec: w.actualDurationSec,
-          actualPace: w.actualPace,
-          actualAvgHeartRate: w.actualAvgHeartRate,
-          actualMaxHeartRate: w.actualMaxHeartRate,
-          actualElevationGain: w.actualElevationGain,
-          actualCalories: w.actualCalories,
-          actualCadence: w.actualCadence,
-          tss: w.tss,
-          completedAt: w.completedAt,
-          sportType: w.sportType,
-          isCommute: w.isCommute,
-          secondaryActivities: w.secondaryActivities ?? undefined,
-          tags: w.tags,
-          aiAdjustmentNote: w.aiAdjustmentNote,
+          sportType: "running",
+          isCommute: false,
         },
-        create: w,
+        select: { actualDistanceKm: true },
       });
-      savedWorkouts.push(upserted);
-    }
+      const totalKm = allDone.reduce(
+        (sum, item) => sum + (item.actualDistanceKm || 0),
+        0,
+      );
+      await tx.user.update({
+        where: { id: userId },
+        data: { totalKm: Number(totalKm.toFixed(2)) },
+      });
 
-    // Recalcul du kilométrage total utilisateur (course à pied uniquement)
-    const allDone = await this.prisma.workout.findMany({
-      where: {
-        userId,
-        status: WorkoutStatus.DONE,
-        isRestDay: false,
-        sportType: "running",
-        isCommute: false,
-      },
-      select: { actualDistanceKm: true },
-    });
-    const totalKm = allDone.reduce(
-      (sum, item) => sum + (item.actualDistanceKm || 0),
-      0,
-    );
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { totalKm: Number(totalKm.toFixed(2)) },
-    });
-
-    // Sauvegarde date de dernière synchronisation
-    await this.prisma.syncToken.update({
-      where: { id: syncToken.id },
-      data: {
-        metadata: {
-          ...((syncToken.metadata as any) || {}),
-          lastSyncedAt: new Date().toISOString(),
+      // Sauvegarde date de dernière synchronisation
+      await tx.syncToken.update({
+        where: { id: syncToken.id },
+        data: {
+          metadata: {
+            ...((syncToken.metadata as any) || {}),
+            lastSyncedAt: new Date().toISOString(),
+          },
         },
-      },
+      });
+
+      return saved;
     });
 
     return {
