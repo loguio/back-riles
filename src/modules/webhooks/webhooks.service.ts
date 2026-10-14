@@ -1,4 +1,9 @@
-import { Injectable, UnauthorizedException, Logger } from "@nestjs/common";
+import {
+  Injectable,
+  UnauthorizedException,
+  BadRequestException,
+  Logger,
+} from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import * as crypto from "crypto";
 import { PrismaService } from "../../prisma/prisma.service";
@@ -44,6 +49,16 @@ export class WebhooksService {
   private readonly seenWebhookEvents = new Map<string, number>();
   private static readonly DEDUPE_TTL_MS = 60 * 60 * 1000; // 1 heure
   private static readonly DEDUPE_MAX_KEYS = 50_000;
+
+  /**
+   * Nonces OAuth Strava émis par GET /webhooks/strava/oauth/url (RILES-007) :
+   * nonce → { userId, expiration }.À usage unique, vérifiés au callback.
+   */
+  private readonly oauthStates = new Map<
+    string,
+    { userId: string; expiresAt: number }
+  >();
+  private static readonly OAUTH_STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
   constructor(
     private readonly prisma: PrismaService,
@@ -177,12 +192,91 @@ export class WebhooksService {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // RILES-007 : state OAuth (anti login-CSRF) + vérification de souscription
+  // ---------------------------------------------------------------------------
+
+  private oauthStateError(reason: string): BadRequestException {
+    this.logger.warn(`Strava OAuth state rejected: ${reason}`);
+    return new BadRequestException("Invalid or expired OAuth state");
+  }
+
+  private pruneOAuthStates(): void {
+    const now = Date.now();
+    for (const [nonce, entry] of this.oauthStates) {
+      if (entry.expiresAt < now) {
+        this.oauthStates.delete(nonce);
+      }
+    }
+  }
+
+  /**
+   * Émet un `state` au format `userId.nonce` : nonce aléatoire 256 bits,
+   * mémorisé côté serveur et lié à l'utilisateur authentifié appelant.
+   * Remplace le userId brut envoyé jusqu'ici (login CSRF, RILES-007).
+   */
+  issueOAuthState(userId: string): string {
+    if (!userId || userId.trim().length === 0) {
+      throw new UnauthorizedException(
+        "Cannot issue OAuth state without an authenticated user",
+      );
+    }
+    this.pruneOAuthStates();
+    const nonce = crypto.randomBytes(32).toString("hex");
+    this.oauthStates.set(nonce, {
+      userId,
+      expiresAt: Date.now() + WebhooksService.OAUTH_STATE_TTL_MS,
+    });
+    return `${userId}.${nonce}`;
+  }
+
+  /**
+   * Vérifie et CONSUME le `state` reçu au callback. Rejet (400) si absent,
+   * malformé, inconnu, expiré, déjà utilisé, ou si le userId diffère de celui
+   * pour lequel le nonce a été émis. Retourne l'utilisateur lié au state.
+   */
+  verifyOAuthState(state?: string): string {
+    if (!state || typeof state !== "string") {
+      throw this.oauthStateError("missing state");
+    }
+    const separator = state.lastIndexOf(".");
+    const userId = separator > 0 ? state.slice(0, separator) : "";
+    const nonce = separator > 0 ? state.slice(separator + 1) : "";
+    if (!userId || !/^[0-9a-f]{64}$/.test(nonce)) {
+      throw this.oauthStateError("malformed state");
+    }
+
+    const entry = this.oauthStates.get(nonce);
+    if (!entry) {
+      // Inconnu ou déjà consommé : un state ne peut être utilisé qu'une fois.
+      throw this.oauthStateError("unknown or already-used nonce");
+    }
+    this.oauthStates.delete(nonce);
+
+    if (entry.expiresAt < Date.now()) {
+      throw this.oauthStateError("expired nonce");
+    }
+    if (entry.userId !== userId) {
+      throw this.oauthStateError("userId does not match the issued state");
+    }
+    this.logger.log(`Strava OAuth state verified for user ${userId}.`);
+    return entry.userId;
+  }
+
+  /** Redirection post-callback OAuth (RILES-007 : issue de l'environnement). */
+  getOAuthSuccessRedirect(): string {
+    return (
+      this.configService.get<string>("FRONTEND_OAUTH_REDIRECT_URI") ||
+      "http://localhost:8081/onboarding?step=4&strava_synced=true"
+    );
+  }
+
   /**
    * Construit l'URL d'autorisation OAuth2 Strava (Scope : lecture des activités sur 6 mois & profil cardio)
    */
   getStravaOAuthAuthorizeUrl(
     customRedirectUri?: string,
-    userId = "user-01",
+    userId?: string,
   ): {
     authorizeUrl: string;
     clientId: string;
@@ -204,7 +298,8 @@ export class WebhooksService {
       response_type: "code",
       approval_prompt: "auto",
       scope: "read,activity:read_all,profile:read_all",
-      state: userId,
+      // RILES-007 : plus de userId brut — state signé par le serveur.
+      state: this.issueOAuthState(userId ?? ""),
     });
 
     return {
@@ -529,12 +624,24 @@ export class WebhooksService {
     verifyToken: string,
     challenge: string,
   ): { "hub.challenge": string } {
-    const expectedToken = this.configService.get<string>(
-      "STRAVA_VERIFY_TOKEN",
-      "riles_strava_webhook_token_2026",
-    );
+    // RILES-007 : plus de jeton par défaut codé en dur ; sans configuration,
+    // la vérification échoue fermement (fail-closed).
+    const expectedToken = this.configService.get<string>("STRAVA_VERIFY_TOKEN");
+    if (!expectedToken || expectedToken.trim().length === 0) {
+      this.logger.error(
+        "Strava subscription verification rejected: STRAVA_VERIFY_TOKEN is not configured (fail-closed).",
+      );
+      throw new UnauthorizedException(
+        "Strava subscription verification is not configured",
+      );
+    }
 
-    if (mode === "subscribe" && verifyToken === expectedToken) {
+    const isValid =
+      mode === "subscribe" &&
+      typeof verifyToken === "string" &&
+      WebhooksService.constantTimeEquals(verifyToken, expectedToken);
+
+    if (isValid) {
       this.logger.log("Strava Webhook subscription verified successfully.");
       return { "hub.challenge": challenge };
     }
@@ -572,8 +679,16 @@ export class WebhooksService {
    */
   async createStravaSubscription(
     callbackUrl: string,
-    verifyToken = "riles_strava_webhook_token_2026",
+    verifyToken?: string,
   ): Promise<any> {
+    // RILES-007 : jeton de vérification issu de l'environnement (fail-closed),
+    // jamais une valeur codée en dur.
+    const effectiveVerifyToken =
+      (verifyToken && verifyToken.trim()) ||
+      this.configService.get<string>("STRAVA_VERIFY_TOKEN");
+    if (!effectiveVerifyToken) {
+      return { error: "STRAVA_VERIFY_TOKEN non configuré (fail-closed)" };
+    }
     const clientId = this.configService.get<string>("STRAVA_CLIENT_ID");
     const clientSecret = this.configService.get<string>("STRAVA_CLIENT_SECRET");
     if (!clientId || !clientSecret) {
@@ -596,7 +711,7 @@ export class WebhooksService {
         client_id: clientId,
         client_secret: clientSecret,
         callback_url: callbackUrl,
-        verify_token: verifyToken,
+        verify_token: effectiveVerifyToken,
       });
 
       const res = await fetch(
