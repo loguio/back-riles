@@ -58,8 +58,7 @@ export class WebhooksService {
     redirectUri: string;
     isLiveConfigured: boolean;
   } {
-    const clientId =
-      this.configService.get<string>("STRAVA_CLIENT_ID") || "";
+    const clientId = this.configService.get<string>("STRAVA_CLIENT_ID") || "";
     const clientSecret =
       this.configService.get<string>("STRAVA_CLIENT_SECRET") || "";
     const redirectUri =
@@ -88,7 +87,9 @@ export class WebhooksService {
   /**
    * Rafraîchit automatiquement le token OAuth2 Strava s'il est expiré
    */
-  private async refreshStravaAccessTokenIfNeeded(syncToken: any): Promise<string | null> {
+  private async refreshStravaAccessTokenIfNeeded(
+    syncToken: any,
+  ): Promise<string | null> {
     if (!syncToken?.accessToken) return null;
 
     let accessToken = syncToken.accessToken;
@@ -120,8 +121,7 @@ export class WebhooksService {
               where: { id: syncToken.id },
               data: {
                 accessToken: tokenData.access_token,
-                refreshToken:
-                  tokenData.refresh_token || syncToken.refreshToken,
+                refreshToken: tokenData.refresh_token || syncToken.refreshToken,
                 expiresAt: tokenData.expires_at
                   ? new Date(tokenData.expires_at * 1000)
                   : undefined,
@@ -226,8 +226,9 @@ export class WebhooksService {
     }
 
     // 2. Tentative de récupération live paginée des 6 derniers mois via GET /api/v3/athlete/activities
-    let liveActivities: any[] = [];
-    const validAccessToken = await this.refreshStravaAccessTokenIfNeeded(syncToken);
+    const liveActivities: any[] = [];
+    const validAccessToken =
+      await this.refreshStravaAccessTokenIfNeeded(syncToken);
     if (validAccessToken) {
       try {
         // Fenêtre de 6 mois (180 jours)
@@ -451,7 +452,10 @@ export class WebhooksService {
     try {
       // Strava n'autorise qu'une seule souscription par application
       const existing = await this.getStravaSubscription();
-      if (Array.isArray(existing.subscriptions) && existing.subscriptions.length > 0) {
+      if (
+        Array.isArray(existing.subscriptions) &&
+        existing.subscriptions.length > 0
+      ) {
         for (const sub of existing.subscriptions) {
           await this.deleteStravaSubscription(sub.id);
         }
@@ -464,14 +468,19 @@ export class WebhooksService {
         verify_token: verifyToken,
       });
 
-      const res = await fetch("https://www.strava.com/api/v3/push_subscriptions", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: params.toString(),
-      });
+      const res = await fetch(
+        "https://www.strava.com/api/v3/push_subscriptions",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: params.toString(),
+        },
+      );
 
       const data = await res.json();
-      this.logger.log(`Souscription webhook Strava créée (${res.status}): ${JSON.stringify(data)}`);
+      this.logger.log(
+        `Souscription webhook Strava créée (${res.status}): ${JSON.stringify(data)}`,
+      );
       return {
         status: res.status,
         data,
@@ -495,7 +504,10 @@ export class WebhooksService {
     let idToDelete = subscriptionId;
     if (!idToDelete) {
       const existing = await this.getStravaSubscription();
-      if (Array.isArray(existing.subscriptions) && existing.subscriptions.length > 0) {
+      if (
+        Array.isArray(existing.subscriptions) &&
+        existing.subscriptions.length > 0
+      ) {
         idToDelete = existing.subscriptions[0].id;
       }
     }
@@ -546,7 +558,8 @@ export class WebhooksService {
       };
     }
 
-    const validAccessToken = await this.refreshStravaAccessTokenIfNeeded(syncToken);
+    const validAccessToken =
+      await this.refreshStravaAccessTokenIfNeeded(syncToken);
     if (!validAccessToken) {
       return {
         success: false,
@@ -560,7 +573,7 @@ export class WebhooksService {
       (Date.now() - daysLookback * 24 * 3600 * 1000) / 1000,
     );
 
-    let recentActivities: any[] = [];
+    const recentActivities: any[] = [];
     try {
       let page = 1;
       const maxPages = daysLookback > 30 ? 5 : 1;
@@ -754,8 +767,7 @@ export class WebhooksService {
               where: { id: syncToken.id },
               data: {
                 accessToken: tokenData.access_token,
-                refreshToken:
-                  tokenData.refresh_token || syncToken.refreshToken,
+                refreshToken: tokenData.refresh_token || syncToken.refreshToken,
                 expiresAt: tokenData.expires_at
                   ? new Date(tokenData.expires_at * 1000)
                   : undefined,
@@ -826,10 +838,7 @@ export class WebhooksService {
     const workout = await this.prisma.workout.findFirst({
       where: {
         userId,
-        OR: [
-          { dateKey: executed.dateKey },
-          { status: WorkoutStatus.SELECTED },
-        ],
+        OR: [{ dateKey: executed.dateKey }, { status: WorkoutStatus.SELECTED }],
       },
     });
 
@@ -1001,7 +1010,10 @@ export class WebhooksService {
       include: { rules: true },
     });
 
-    if (user && (executed.actualDistanceKm > 0 || executed.actualDurationSec > 0)) {
+    if (
+      user &&
+      (executed.actualDistanceKm > 0 || executed.actualDurationSec > 0)
+    ) {
       const banister = this.llmService.updateBanisterLoad({
         previousAtl: user.atlFatigue ?? 45,
         previousCtl: user.ctlFitness ?? 50,
@@ -1113,7 +1125,9 @@ export class WebhooksService {
         }).catch(() => {});
       }
     } catch (err: any) {
-      this.logger.warn(`Push notification post-séance ignorée: ${err?.message}`);
+      this.logger.warn(
+        `Push notification post-séance ignorée: ${err?.message}`,
+      );
     }
   }
 
@@ -1288,7 +1302,7 @@ export class WebhooksService {
       const actualPace = isRun
         ? this.formatPaceFromDistanceAndDuration(actualDistanceKm, durationSec)
         : isRide && durationSec > 0
-          ? `${((actualDistanceKm / (durationSec / 3600)) || 26).toFixed(1)} km/h`
+          ? `${(actualDistanceKm / (durationSec / 3600) || 26).toFixed(1)} km/h`
           : "Allure libre";
 
       const avgHr = act.average_heartrate
@@ -1306,9 +1320,7 @@ export class WebhooksService {
       const rawCadence = Number(act.average_cadence || 0);
       const cadence =
         rawCadence > 0
-          ? Math.round(
-              isRun && rawCadence < 120 ? rawCadence * 2 : rawCadence,
-            )
+          ? Math.round(isRun && rawCadence < 120 ? rawCadence * 2 : rawCadence)
           : isRun
             ? 174
             : 85;
@@ -1377,7 +1389,7 @@ export class WebhooksService {
       // Construction sobre des activités secondaires du jour (ex: trajets vélotaf, deuxième séance)
       const secondaryActivities = otherActs.map((sec) => {
         const sSport = String(sec.sport_type || sec.type || "Ride");
-        const sDistKm = Number(((Number(sec.distance || 0)) / 1000).toFixed(2));
+        const sDistKm = Number((Number(sec.distance || 0) / 1000).toFixed(2));
         const sDurationSec = Number(sec.moving_time || sec.elapsed_time || 0);
         const sDurMins = Math.round(sDurationSec / 60);
         const sDurationLabel =
@@ -1395,24 +1407,42 @@ export class WebhooksService {
         const sPaceOrSpeed = isSecRun
           ? this.formatPaceFromDistanceAndDuration(sDistKm, sDurationSec)
           : isSecRide && sDurationSec > 0
-            ? `${((sDistKm / (sDurationSec / 3600)) || 25).toFixed(1)} km/h`
+            ? `${(sDistKm / (sDurationSec / 3600) || 25).toFixed(1)} km/h`
             : undefined;
         const isSecCommute = checkIsCommute(sec);
 
         return {
           id: String(sec.id || `sec-${Math.random()}`),
-          title: sec.name || (isSecCommute ? "Déplacement - Transport" : `Activité ${sSport}`),
-          sportType: isSecRun ? "running" : isSecRide ? "cycling" : sSport.toLowerCase(),
+          title:
+            sec.name ||
+            (isSecCommute ? "Déplacement - Transport" : `Activité ${sSport}`),
+          sportType: isSecRun
+            ? "running"
+            : isSecRide
+              ? "cycling"
+              : sSport.toLowerCase(),
           distanceKm: sDistKm,
           durationSec: sDurationSec,
           durationLabel: sDurationLabel,
           paceOrSpeedLabel: sPaceOrSpeed,
           isCommute: isSecCommute,
-          actualAvgHeartRate: sec.average_heartrate ? Math.round(Number(sec.average_heartrate)) : undefined,
-          actualMaxHeartRate: sec.max_heartrate ? Math.round(Number(sec.max_heartrate)) : undefined,
-          actualElevationGain: sec.total_elevation_gain !== undefined ? Math.round(Number(sec.total_elevation_gain)) : undefined,
-          actualCalories: sec.calories !== undefined ? Math.round(Number(sec.calories)) : undefined,
-          actualCadence: sec.average_cadence ? Math.round(Number(sec.average_cadence)) : undefined,
+          actualAvgHeartRate: sec.average_heartrate
+            ? Math.round(Number(sec.average_heartrate))
+            : undefined,
+          actualMaxHeartRate: sec.max_heartrate
+            ? Math.round(Number(sec.max_heartrate))
+            : undefined,
+          actualElevationGain:
+            sec.total_elevation_gain !== undefined
+              ? Math.round(Number(sec.total_elevation_gain))
+              : undefined,
+          actualCalories:
+            sec.calories !== undefined
+              ? Math.round(Number(sec.calories))
+              : undefined,
+          actualCadence: sec.average_cadence
+            ? Math.round(Number(sec.average_cadence))
+            : undefined,
           category: isSecCommute
             ? "DÉPLACEMENT - TRANSPORT"
             : isSecRun
@@ -1423,8 +1453,12 @@ export class WebhooksService {
           tss: this.llmService.computeSessionTss({
             durationSec: sDurationSec,
             distanceKm: sDistKm,
-            avgHeartRate: sec.average_heartrate ? Math.round(Number(sec.average_heartrate)) : undefined,
-            maxHeartRate: sec.max_heartrate ? Math.round(Number(sec.max_heartrate)) : undefined,
+            avgHeartRate: sec.average_heartrate
+              ? Math.round(Number(sec.average_heartrate))
+              : undefined,
+            maxHeartRate: sec.max_heartrate
+              ? Math.round(Number(sec.max_heartrate))
+              : undefined,
           }),
         };
       });
@@ -1502,7 +1536,8 @@ export class WebhooksService {
         completedAt: startDate,
         sportType,
         isCommute: isCommuteAct,
-        secondaryActivities: secondaryActivities.length > 0 ? secondaryActivities : undefined,
+        secondaryActivities:
+          secondaryActivities.length > 0 ? secondaryActivities : undefined,
       });
     }
 
@@ -1678,7 +1713,7 @@ export class WebhooksService {
               actualDurationSec,
             )
           : isRide
-            ? `${((actualDistanceKm / (actualDurationSec / 3600)) || 28).toFixed(1)} km/h`
+            ? `${(actualDistanceKm / (actualDurationSec / 3600) || 28).toFixed(1)} km/h`
             : isSwim
               ? "2:30/100m"
               : "PPG / Renfo";
@@ -1835,7 +1870,9 @@ export class WebhooksService {
             actualDistanceKm > 0
               ? `${distLabel} réalisés`
               : `${durationLabel} réalisés`,
-            isRun ? `Allure réelle : ${actualPace}` : `Sport : ${cfg.sportType}`,
+            isRun
+              ? `Allure réelle : ${actualPace}`
+              : `Sport : ${cfg.sportType}`,
             `FC moy : ${cfg.avgHr} bpm`,
           ],
           aiAdjustmentNote: `Séance réelle (${cfg.sportType}) importée depuis tes 6 derniers mois Strava : ${distLabel} en ${durationLabel} (${actualPace} • ${cfg.avgHr} bpm moy • Charge : ${tss} TSS).`,
@@ -1904,7 +1941,11 @@ export class WebhooksService {
             flexRatio: 1,
           },
         ],
-        tags: ["7,2 km réalisés", "Allure réelle : 5:41/km", "FC moy : 138 bpm"],
+        tags: [
+          "7,2 km réalisés",
+          "Allure réelle : 5:41/km",
+          "FC moy : 138 bpm",
+        ],
         aiAdjustmentNote:
           "Séance réelle synchronisée via Strava : 7,2 km en 40m55s (5:41/km • 138 bpm moy). Régularité cardiaque idéale.",
         externalActivityId: "strava-10122026",
@@ -1964,7 +2005,11 @@ export class WebhooksService {
             flexRatio: 1,
           },
         ],
-        tags: ["6,1 km réalisés", "Allure réelle : 5:32/km", "FC moy : 141 bpm"],
+        tags: [
+          "6,1 km réalisés",
+          "Allure réelle : 5:32/km",
+          "FC moy : 141 bpm",
+        ],
         aiAdjustmentNote:
           "Séance réelle synchronisée via Strava : 6,1 km en 33m45s (5:32/km • 141 bpm moy • 178 spm).",
         externalActivityId: "strava-10132026",
@@ -1991,7 +2036,8 @@ export class WebhooksService {
    */
   public computeSixMonthsSummaryFromWorkouts(
     workouts: any[],
-    sourceMode: "strava_oauth_live" | "strava_history_import" = "strava_history_import",
+    sourceMode:
+      "strava_oauth_live" | "strava_history_import" = "strava_history_import",
   ): StravaSixMonthsSummaryDto {
     if (!workouts || workouts.length === 0) {
       const defaultPaces = this.llmService.computePacesFromRecentPerformance({
@@ -2207,7 +2253,10 @@ export class WebhooksService {
         label: m.label,
         totalKm: Number(m.km.toFixed(1)),
         sessionsCount: m.count,
-        avgPace: this.formatPaceFromDistanceAndDuration(m.km, m.runSec || m.sec),
+        avgPace: this.formatPaceFromDistanceAndDuration(
+          m.km,
+          m.runSec || m.sec,
+        ),
       }));
 
     const tsbForm = Number((ctl - atl).toFixed(1));

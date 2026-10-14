@@ -3,13 +3,15 @@ import { PrismaClient, PlanType, AuthProvider } from "@prisma/client";
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log("🧹 Vidage complet de la base de données Riles (PostgreSQL / Supabase)...");
+  console.log(
+    "🧹 Vidage complet de la base de données Riles (PostgreSQL / Supabase)...",
+  );
 
   // Nettoyage en cascade de toutes les tables dépendantes
-  const deletedEvents = await prisma.webhookEvent.deleteMany({});
+  await prisma.webhookEvent.deleteMany({});
   const deletedCheckIns = await prisma.rpeCheckIn.deleteMany({});
   const deletedMessages = await prisma.chatMessage.deleteMany({});
-  const deletedPrompts = await prisma.quickPrompt.deleteMany({});
+  await prisma.quickPrompt.deleteMany({});
   const deletedTokens = await prisma.syncToken.deleteMany({});
   const deletedRules = await prisma.lifeRule.deleteMany({});
   const deletedWorkouts = await prisma.workout.deleteMany({});
@@ -19,7 +21,9 @@ async function main() {
   console.log(`   - Séances d'entraînement : ${deletedWorkouts.count}`);
   console.log(`   - Règles de vie : ${deletedRules.count}`);
   console.log(`   - Messages Coach chat : ${deletedMessages.count}`);
-  console.log(`   - Jetons de synchronisation (Strava/Garmin) : ${deletedTokens.count}`);
+  console.log(
+    `   - Jetons de synchronisation (Strava/Garmin) : ${deletedTokens.count}`,
+  );
   console.log(`   - RPE Check-ins : ${deletedCheckIns.count}`);
   console.log(`   - Utilisateurs : ${deletedUsers.count}`);
 
@@ -50,7 +54,9 @@ async function main() {
   console.log("\n✅ Base de données réinitialisée à 100 % !");
   console.log(`👤 Utilisateur actif : ${blankUser.name} (${blankUser.email})`);
   console.log(`🚀 État : isOnboardingCompleted = false`);
-  console.log(`👉 Tu peux maintenant ouvrir l'application et refaire le parcours d'onboarding complet de A à Z !`);
+  console.log(
+    `👉 Tu peux maintenant ouvrir l'application et refaire le parcours d'onboarding complet de A à Z !`,
+  );
 }
 
 main()

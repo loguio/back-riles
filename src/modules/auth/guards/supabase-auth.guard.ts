@@ -11,7 +11,7 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import * as jwt from "jsonwebtoken";
 import { PrismaService } from "../../../prisma/prisma.service";
 import { IS_PUBLIC_KEY } from "../../../common/decorators/public.decorator";
-import { AuthProvider, PlanType, User, WorkoutStatus } from "@prisma/client";
+import { AuthProvider, PlanType, User } from "@prisma/client";
 
 export interface SupabaseJwtPayload {
   sub: string;
@@ -188,7 +188,7 @@ export class SupabaseAuthGuard implements CanActivate {
             );
             payload = decoded;
           }
-        } catch (decodeErr) {
+        } catch {
           // Ignorer
         }
       }

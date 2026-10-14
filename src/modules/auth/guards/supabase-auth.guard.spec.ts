@@ -26,7 +26,7 @@ async function runGuardTests() {
     },
   };
 
-  let databaseUsers: any[] = [
+  const databaseUsers: any[] = [
     {
       id: "existing-user-uuid",
       email: "existing@riles.app",

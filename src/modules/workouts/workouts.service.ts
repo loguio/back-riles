@@ -28,9 +28,7 @@ export class WorkoutsService {
     const dayNr = target.getUTCDay() || 7;
     target.setUTCDate(target.getUTCDate() + 4 - dayNr);
     const jan1 = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
-    return Math.ceil(
-      ((target.getTime() - jan1.getTime()) / 86400000 + 1) / 7,
-    );
+    return Math.ceil(((target.getTime() - jan1.getTime()) / 86400000 + 1) / 7);
   }
 
   private getMondayOfWeek(year: number, week: number): Date {
@@ -82,7 +80,7 @@ export class WorkoutsService {
     const monthStr = String(effectiveMonth + 1).padStart(2, "0");
     const prefix = `${effectiveYear}-${monthStr}`;
 
-    let workouts = await this.prisma.workout.findMany({
+    const workouts = await this.prisma.workout.findMany({
       where: {
         userId,
         OR: [
@@ -441,7 +439,9 @@ export class WorkoutsService {
         : 12);
 
     const calculatedPaces = this.llmService.computePacesFromRecentPerformance({
-      hasSyncedHistory: Boolean(sixMonthsSummary || recentDoneWorkouts.length > 0),
+      hasSyncedHistory: Boolean(
+        sixMonthsSummary || recentDoneWorkouts.length > 0,
+      ),
       recentWeeklyKm,
       recent4WeeksAvgKm: sixMonthsSummary?.recent4WeeksAvgKm,
       totalKm6Months: sixMonthsSummary?.totalDistanceKm ?? user?.totalKm,
@@ -912,9 +912,8 @@ export class WorkoutsService {
         entry.plannedRunningSessions += 1;
         if (isRunning && w.distance) {
           const distNum =
-            parseFloat(
-              w.distance.replace(",", ".").replace(/[^0-9.]/g, ""),
-            ) || 0;
+            parseFloat(w.distance.replace(",", ".").replace(/[^0-9.]/g, "")) ||
+            0;
           entry.plannedKm += distNum;
         }
         entry.keySessions.push(`${w.dayName} : ${w.title} (${w.distance})`);
@@ -929,7 +928,12 @@ export class WorkoutsService {
 
       if (Array.isArray(w.secondaryActivities)) {
         for (const sec of w.secondaryActivities as any[]) {
-          if (sec && !sec.isCommute && sec.sportType === "running" && sec.distanceKm) {
+          if (
+            sec &&
+            !sec.isCommute &&
+            sec.sportType === "running" &&
+            sec.distanceKm
+          ) {
             entry.completedKm += Number(sec.distanceKm) || 0;
           }
         }
@@ -1049,9 +1053,7 @@ export class WorkoutsService {
         const avgKm = Math.round(
           pWeeks.reduce((s, w) => s + w.plannedKm, 0) / pWeeks.length,
         );
-        const peakKm = Math.round(
-          Math.max(...pWeeks.map((w) => w.plannedKm)),
-        );
+        const peakKm = Math.round(Math.max(...pWeeks.map((w) => w.plannedKm)));
         const sessionsPerWeek = Math.round(
           pWeeks.reduce((s, w) => s + w.plannedRunningSessions, 0) /
             pWeeks.length,
