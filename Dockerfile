@@ -11,6 +11,9 @@ RUN apk add --no-cache openssl
 FROM base AS dependencies
 COPY package*.json ./
 COPY prisma ./prisma/
+# argon2 ships no musl prebuilt binary: compile it from source on Alpine.
+# Toolchain stays in this stage only, the runtime image copies node_modules.
+RUN apk add --no-cache python3 make g++
 RUN npm ci
 
 # --------------------------------------------------------

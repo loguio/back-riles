@@ -57,6 +57,21 @@ npm run start:prod
 Le serveur sera accessible sur : `http://localhost:3000/api/v1`  
 La documentation Swagger interactive sera disponible sur : `http://localhost:3000/api/docs`
 
+### 5. Secret JWT requis (démarrage fail-closed)
+
+Le serveur **refuse de démarrer** si ni `SUPABASE_JWT_SECRET` ni `JWT_SECRET` n'est défini
+(variable d'environnement ou fichier `.env`, jamais committé) :
+
+```bash
+# .env (untracked)
+SUPABASE_JWT_SECRET=$(openssl rand -hex 32)
+```
+
+⚠️ **Rotation** : un secret par défaut était embarqué dans le code source, dans `.env.example`
+et dans `docker-compose.yml`. Il est désormais public : **considérez-le comme compromis**,
+ne le réutilisez jamais, régénérez-le et révoquez-le côté Supabase
+(Project Settings → API → JWT Secret) ainsi que partout où il avait été copié.
+
 ---
 
 ## 📄 Schéma de la Base de Données (`schema.prisma`)

@@ -7,37 +7,21 @@ import {
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { ConfigService } from "@nestjs/config";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { SupabaseClient } from "@supabase/supabase-js";
 import * as jwt from "jsonwebtoken";
 import { PrismaService } from "../../../prisma/prisma.service";
 import { IS_PUBLIC_KEY } from "../../../common/decorators/public.decorator";
 import { AuthProvider, PlanType, User } from "@prisma/client";
+import { SupabaseJwtPayload } from "../supabase-auth.types";
+import { createSupabaseAdmin } from "../supabase-admin";
+import { requireJwtSecret } from "../jwt-secret";
 
-export interface SupabaseJwtPayload {
-  sub: string;
-  email?: string;
-  role?: string;
-  aud?: string;
-  exp?: number;
-  iat?: number;
-  user_metadata?: {
-    name?: string;
-    full_name?: string;
-    avatar_url?: string;
-    picture?: string;
-    [key: string]: any;
-  };
-  app_metadata?: {
-    provider?: string;
-    providers?: string[];
-    [key: string]: any;
-  };
-}
+export type { SupabaseJwtPayload };
 
 @Injectable()
 export class SupabaseAuthGuard implements CanActivate {
   private readonly logger = new Logger(SupabaseAuthGuard.name);
-  private readonly supabaseAdmin: SupabaseClient | null = null;
+  private readonly supabaseAdmin: SupabaseClient | null;
   private readonly jwtSecret: string;
 
   constructor(
@@ -45,29 +29,12 @@ export class SupabaseAuthGuard implements CanActivate {
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
   ) {
-    this.jwtSecret =
-      this.configService.get<string>("SUPABASE_JWT_SECRET") ||
-      this.configService.get<string>("JWT_SECRET") ||
-      "super-secret-riles-jwt-key-2026-change-in-prod";
+    // Fail closed: no fallback secret, ever.
+    this.jwtSecret = requireJwtSecret((key) =>
+      this.configService.get<string>(key),
+    );
 
-    const supabaseUrl =
-      this.configService.get<string>("SUPABASE_URL") ||
-      `https://${this.configService.get<string>("SUPABASE_PROJECT_REF", "bjktawrigqjshmayutac")}.supabase.co`;
-
-    const supabaseKey =
-      this.configService.get<string>("SUPABASE_SECRET_KEY") ||
-      this.configService.get<string>("SUPABASE_SERVICE_ROLE_KEY") ||
-      this.configService.get<string>("SUPABASE_ANON_KEY") ||
-      "";
-
-    if (supabaseUrl && supabaseKey) {
-      this.supabaseAdmin = createClient(supabaseUrl, supabaseKey, {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-        },
-      });
-    }
+    this.supabaseAdmin = createSupabaseAdmin(this.configService);
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -94,61 +61,20 @@ export class SupabaseAuthGuard implements CanActivate {
       }
     }
 
-    const devUserId = request.headers["x-user-id"];
-    const isDev = this.configService.get<string>("NODE_ENV") !== "production";
-
-    // 3. Gestion des tokens de démo / développement rapide
-    if (
-      token &&
-      (token.startsWith("dev-token-") ||
-        token.startsWith("demo-bearer-token") ||
-        token === "demo-token")
-    ) {
-      const demoId =
-        typeof devUserId === "string" && devUserId.length > 0
-          ? devUserId
-          : "user-01";
-      const demoPayload: SupabaseJwtPayload = {
-        sub: demoId,
-        email: `${demoId}@riles.app`,
-        user_metadata: {},
-        app_metadata: {
-          provider: "email",
-        },
-      };
-
-      const prismaUser = await this.findOrCreatePrismaUser(demoPayload);
-      request.user = prismaUser;
-      request.supabaseUser = demoPayload;
-      return true;
-    }
-
-    // 4. Cas sans token Bearer (Mode Invité / "Continuer sans compte" / Tests API MVP en dev)
+    // 3. Aucun jeton Bearer : refusé dans tous les environnements.
+    //    Il n'existe plus aucune branche démo/dev ni d'impersonation via
+    //    un en-tête X-User-Id (RILES-003).
     if (!token) {
-      if (isDev) {
-        const fallbackUserId =
-          typeof devUserId === "string" && devUserId.length > 0
-            ? devUserId
-            : "user-01";
-        const user = await this.prisma.user.findUnique({
-          where: { id: fallbackUserId },
-        });
-        if (user) {
-          request.user = user;
-          return true;
-        }
-      }
-
       throw new UnauthorizedException(
         "Jeton d'authentification Bearer manquant ou invalide.",
       );
     }
 
-    // 5. Validation cryptographique du JWT Supabase
+    // 4. Validation cryptographique du JWT Supabase
     let payload: SupabaseJwtPayload | null = null;
 
     try {
-      // Méthode A : Décodage et vérification locale rapide avec le secret JWT
+      // Méthode A : Décodage et vérification locale avec le secret JWT réel
       payload = jwt.verify(token, this.jwtSecret, {
         algorithms: ["HS256"],
       }) as SupabaseJwtPayload;
@@ -178,21 +104,8 @@ export class SupabaseAuthGuard implements CanActivate {
         }
       }
 
-      // Méthode C : Décodage du payload en environnement non-prod si validation externe indisponible
-      if (!payload && isDev) {
-        try {
-          const decoded = jwt.decode(token) as SupabaseJwtPayload | null;
-          if (decoded && decoded.sub) {
-            this.logger.warn(
-              `⚠️ [Dev Fallback] JWT Supabase validé par décodage structurel pour sub=${decoded.sub}`,
-            );
-            payload = decoded;
-          }
-        } catch {
-          // Ignorer
-        }
-      }
-
+      // Aucun décodage sans vérification de signature n'est toléré : un jeton
+      // inconnu ou falsifié donne un 401, y compris hors production.
       if (!payload) {
         throw new UnauthorizedException(
           `Validation du jeton Supabase impossible : ${localJwtErr.message}`,
@@ -206,10 +119,10 @@ export class SupabaseAuthGuard implements CanActivate {
       );
     }
 
-    // 6. Synchronisation & Auto-Provisioning Prisma PostgreSQL
+    // 5. Synchronisation & Auto-Provisioning Prisma PostgreSQL
     const prismaUser = await this.findOrCreatePrismaUser(payload);
 
-    // 7. Injection dans l'objet request pour @CurrentUserId() et @CurrentUser()
+    // 6. Injection dans l'objet request pour @CurrentUserId() et @CurrentUser()
     request.user = prismaUser;
     request.supabaseUser = payload;
 
