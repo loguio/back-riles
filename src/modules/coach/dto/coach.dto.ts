@@ -31,6 +31,28 @@ export class CoachContextDto {
   lastRpe?: number;
 }
 
+/** RILES-019 — Une modification de semaine avec son diff avant/après. */
+export interface CoachWeekChangeItemDto {
+  dateKey: string;
+  /** État de la séance avant proposition (null = séance absente) — sert d'undo. */
+  before: Record<string, unknown> | null;
+  /** Données Prisma à appliquer sur confirmation. */
+  after: Record<string, unknown>;
+}
+
+/** RILES-019 — Proposition en attente de confirmation (rien n'est écrit avant). */
+export interface CoachActionProposalDto {
+  kind: "week_changes" | "life_rule" | "both";
+  weekChanges?: CoachWeekChangeItemDto[];
+  lifeRule?: {
+    title: string;
+    description: string;
+    icon: string;
+    /** Renseigné après confirmation (permet l'undo). */
+    ruleId?: string;
+  };
+}
+
 export class SuggestedActionDto {
   @ApiProperty({
     example: "reduce_intensity",
@@ -44,6 +66,38 @@ export class SuggestedActionDto {
 
   @ApiProperty({ example: false })
   applied: boolean;
+
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      "RILES-019 — true si la modification est une proposition en attente de confirmation explicite.",
+  })
+  pendingConfirmation?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      "RILES-019 — Diff avant/après de la proposition (workdays/règle de vie), requis pour confirmer ou annuler.",
+    type: Object,
+  })
+  proposal?: CoachActionProposalDto;
+
+  @ApiPropertyOptional({
+    example: false,
+    description: "RILES-019 — La proposition a été écartée sans application.",
+  })
+  discarded?: boolean;
+
+  @ApiPropertyOptional({
+    example: false,
+    description: "RILES-019 — La proposition appliquée a été annulée (undo).",
+  })
+  undone?: boolean;
+
+  @ApiPropertyOptional({
+    example: "2026-10-15T18:30:00.000Z",
+    description: "Horodatage ISO de l'application (après confirmation).",
+  })
+  appliedAt?: string;
 
   @ApiPropertyOptional({ example: "w-14" })
   workoutId?: string;

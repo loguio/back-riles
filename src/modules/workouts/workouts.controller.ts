@@ -144,7 +144,7 @@ export class WorkoutsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
-      "Applique une adaptation IA sur une séance (alléger, décaler, footing cool, mollet)",
+      "Applique une adaptation à la demande sur une séance (alléger, décaler, footing, mollet)",
   })
   @ApiResponse({ status: 200, type: WorkoutSessionDto })
   async adaptSession(

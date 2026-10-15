@@ -443,7 +443,7 @@ Réponds UNIQUEMENT avec un objet JSON valide au format suivant :
   async generateCoachReply(
     input: LlmCoachReplyInput,
   ): Promise<LlmCoachReplyOutput> {
-    const { userPrompt, athleteContext } = input;
+    const { userPrompt, athleteContext, conversationHistory } = input;
 
     // 1. Garde-fou déterministe #1 : Urgence médicale (0 ms)
     const medicalCheck = this.checkMedicalRedFlags(userPrompt);
@@ -525,9 +525,14 @@ RÈGLES STRICTES :
    - Si l'utilisateur demande d'ajuster le volume (ex: « plus de km », « moins de kilomètres », « augmenter le volume », « trop court », « trop long », « adapter une phase ») :
    - Agis en coach sage et expérimenté : explique les compromis physiologiques (ex: progression plafonnée à +10-15% par semaine max pour préserver les tendons et articulations).
    - Si la demande est pertinente, adapte les distances et durées des séances de la semaine dans "recalculatedWeekWorkouts" (en priorité sur l'Endurance Fondamentale Z2 et la Sortie Longue).
+9. PROPOSITIONS, JAMAIS D'APPLICATIONS IMAGINÉES :
+   - Toute modification du plan (recalculatedWeekWorkouts ou add_life_rule) est une PROPOSITION qui ne sera appliquée qu'après confirmation explicite de l'utilisateur dans l'app.
+   - Formule donc tes suggestions au conditionnel (« je te propose d'alléger… », « veux-tu que je passe… ? ») et ne présente JAMAIS une modification comme déjà effectuée (évite « J'ai allégé », « c'est fait », « j'ai inséré »).
+   - Si le contexte contient « HISTORIQUE RÉCENT DE LA CONVERSATION », utilise-le pour répondre aux références implicites (« comme je te disais », « l'autre jour ») sans te contredire.
 
 CONTEXTE ATHLÈTE CONDENSÉ & ANONYMISÉ :
 ${this.buildCompactAthleteMarkdownContext(athleteContext, paces)}
+${this.buildConversationHistorySection(conversationHistory)}
 
 Réponds UNIQUEMENT avec un objet JSON valide :
 {
@@ -536,8 +541,8 @@ Réponds UNIQUEMENT avec un objet JSON valide :
   "safetyStatus": "safe | warning_fatigue | medical_stop | unrealistic_goal",
   "suggestedAction": {
     "type": "adjust_workout | reschedule | reduce_intensity | add_life_rule | recalculate_week",
-    "label": "string (ex: Semaine recalculée : Séance allégée & fin de semaine ajustée)",
-    "applied": true,
+    "label": "string (ex: Proposition : séance allégée & fin de semaine ajustée)",
+    "applied": false,
     "details": "lighten | easy_run | postpone | injury_care | add_life_rule | increase_volume | decrease_volume",
     "ruleData": { "title": "string", "description": "string", "icon": "calendar-lock | clock-outline | bullseye-arrow | sleep" }
   },
@@ -611,23 +616,54 @@ Réponds UNIQUEMENT avec un objet JSON valide :
    * - 1. Profil athlète & forme Banister (100 % anonyme)
    * - 2. Allures physiologiques calculées
    * - 3. Règles de vie
-   * - 4. Macrocycle de préparation
-   * - 5. Historique récent (-7 jours autour d'aujourd'hui) & Plan immédiat (+7 jours)
+   * - 4. Historique récent (-7 jours autour d'aujourd'hui) & 5. Plan immédiat (+7 jours)
+   *
+   * RILES-029 : aucune valeur par défaut n'est inventée — une donnée absente
+   * est explicitement déclarée « non renseignée » dans le prompt.
    */
+  /**
+   * RILES-028 — Fenêtre bornée (12 messages max, 400 car./message) de
+   * l'historique récent, re-soumise au LLM pour que le coach ne perde pas le
+   * fil de la conversation en cours de session.
+   */
+  public buildConversationHistorySection(
+    conversationHistory?: LlmCoachReplyInput["conversationHistory"],
+  ): string {
+    if (!conversationHistory || conversationHistory.length === 0) {
+      return "";
+    }
+    const lines = conversationHistory.slice(-12).map((turn) => {
+      const text =
+        turn.text.length > 400 ? `${turn.text.slice(0, 400)}…` : turn.text;
+      return `- ${turn.role === "user" ? "Utilisateur" : "Coach"} : ${text}`;
+    });
+    return `HISTORIQUE RÉCENT DE LA CONVERSATION (contexte du fil — réponds en cohérence avec ces échanges) :\n${lines.join("\n")}`;
+  }
+
   public buildCompactAthleteMarkdownContext(
     athleteContext: LlmCoachReplyInput["athleteContext"],
     paces: TargetPacesDto,
   ): string {
     const today =
       athleteContext.todayDate || new Date().toISOString().split("T")[0];
-    const weeksRemaining = athleteContext.activeGoalWeeksRemaining || 8;
-    const weeklyKm = Math.round(
+    // RILES-029 — Aucune valeur par défaut fabriquée : une donnée absente est
+    // déclarée « non renseignée » plutôt qu'estimée, pour que le modèle ne
+    // reçoive jamais un fait utilisateur qu'il ne peut pas tracer en base.
+    const weeksRemaining = athleteContext.activeGoalWeeksRemaining;
+    const rawWeeklyKm =
       athleteContext.trainingContext?.recentWeeklyKm ||
-        athleteContext.trainingContext?.recent4WeeksAvgKm ||
-        (athleteContext.totalKm && athleteContext.activeWeeks
-          ? athleteContext.totalKm / Math.max(1, athleteContext.activeWeeks)
-          : 28),
-    );
+      athleteContext.trainingContext?.recent4WeeksAvgKm ||
+      (athleteContext.totalKm && athleteContext.activeWeeks
+        ? athleteContext.totalKm / Math.max(1, athleteContext.activeWeeks)
+        : undefined);
+    const weeklyKm =
+      rawWeeklyKm !== undefined && Number.isFinite(rawWeeklyKm)
+        ? Math.round(rawWeeklyKm)
+        : undefined;
+    const banisterMeasured =
+      Boolean(athleteContext.tsbForm) ||
+      Boolean(athleteContext.atlFatigue) ||
+      Boolean(athleteContext.ctlFitness);
 
     // 0. Séance principale ciblée par l'utilisateur (Priorité n°1)
     let targetedWorkoutSection = "";
@@ -724,10 +760,22 @@ Réponds UNIQUEMENT avec un objet JSON valide :
     const profileSection = `### 1. PROFIL ATHLÈTE (Anonyme)
 - Date du jour (aujourd'hui) : ${today}
 - Objectif : ${athleteContext.activeGoalTitle || "Objectif Course"} (${athleteContext.activeGoalTarget || "Terminer en forme"})
-- Calendrier : Préparation en cours (reste ~${weeksRemaining} semaines)
+- Calendrier : ${
+      weeksRemaining
+        ? `Préparation en cours (reste ~${weeksRemaining} semaines)`
+        : "Durée de préparation non renseignée (ne jamais inventer de reste-semaines)"
+    }
 - Échéance : ${athleteContext.activeGoalRaceDate || "Non définie"}
-- Volume habituel : ~${weeklyKm} km/semaine
-- Forme actuelle (Banister) : TSB (Forme) ${athleteContext.tsbForm ?? 6} | ATL (Fatigue) ${athleteContext.atlFatigue ?? 42} | CTL (Fitness) ${athleteContext.ctlFitness ?? 48}`;
+- Volume habituel : ${
+      weeklyKm !== undefined
+        ? `~${weeklyKm} km/semaine`
+        : "Non déterminé (aucune donnée de volume — ne jamais estimer)"
+    }
+- Forme actuelle (Banister) : ${
+      banisterMeasured
+        ? `TSB (Forme) ${athleteContext.tsbForm ?? 0} | ATL (Fatigue) ${athleteContext.atlFatigue ?? 0} | CTL (Fitness) ${athleteContext.ctlFitness ?? 0}`
+        : "Non mesurée (aucune séance synchronisée — ne jamais avancer de valeurs TSB/ATL/CTL)"
+    }`;
 
     // 2. Allures physiologiques
     const pacesSection = `### 2. ALLURES PHYSIOLOGIQUES OBSERVÉES (Calibrées sur sorties réelles & FC)
@@ -746,14 +794,12 @@ Réponds UNIQUEMENT avec un objet JSON valide :
         : "- Aucune contrainte spécifique enregistrée.";
     const rulesSection = `### 3. RÈGLES DE VIE (À respecter scrupuleusement)\n${rulesList}`;
 
-    // 4. Macrocycle de préparation (vision globale sur les cycles)
-    const macrocycleSection = `### 4. MACROCYCLE DE PRÉPARATION (Vision à moyen & long terme)
-- Semaines 1–4 [Phase Socle & Aérobie] : Volume régulier (${Math.round(weeklyKm * 0.9)}–${weeklyKm} km/sem), endurance fondamentale Z2 et renforcement musculaire.
-- Semaines 5–8 [Phase Seuil & Spécifique - DANS UN MOIS] : Montée de charge (${weeklyKm}–${Math.round(weeklyKm * 1.25)} km/sem), travail au seuil Z4 et allongement progressif des sorties longues.
-- Semaines 9–10 [Phase Pic & Endurance] : Volume maximal (${Math.round(weeklyKm * 1.3)} km/sem), sortie longue clé.
-- Semaines 11–12 [Phase Affûtage & Course] : Baisse du volume de 40%, maintien de l'intensité pour une fraîcheur maximale le jour J.`;
+    // RILES-029 — La section « macrocycle » (4 phases de 12 semaines) a été
+    // supprimée : l'application ne stocke aucun macrocycle, la présenter comme
+    // le plan de l'athlète était une donnée fabriquée. Le modèle s'appuie
+    // uniquement sur des faits traçables en base.
 
-    // 5. Historique récent (-7 jours autour d'aujourd'hui)
+    // 4. Historique récent (-7 jours autour d'aujourd'hui)
     const pastItems: string[] = [];
     for (const w of athleteContext.pastCompletedWorkouts || []) {
       const dist = w.actualDistanceKm
@@ -765,7 +811,7 @@ Réponds UNIQUEMENT avec un objet JSON valide :
         `- ${w.dateKey} : ${w.title} (${dist} ${pace} ${hr}) [Fait]`,
       );
     }
-    const pastSection = `### 5. HISTORIQUE RÉCENT DE L'ATHLÈTE (-7 JOURS)\n${
+    const pastSection = `### 4. HISTORIQUE RÉCENT DE L'ATHLÈTE (-7 JOURS)\n${
       pastItems.length > 0
         ? pastItems.join("\n")
         : "- Aucune sortie enregistrée sur les 7 derniers jours."
@@ -779,13 +825,13 @@ Réponds UNIQUEMENT avec un objet JSON valide :
         : `${w.title} (${w.distance} • Cible ${w.targetPace || paces.easyPaceZ2})`;
       upcomingItems.push(`- ${w.dayName || ""} ${w.dateKey} : ${rest} [Prévu]`);
     }
-    const upcomingSection = `### 6. PLAN IMMÉDIAT AUTOUR D'AUJOURD'HUI (+7 JOURS)\n${
+    const upcomingSection = `### 5. PLAN IMMÉDIAT AUTOUR D'AUJOURD'HUI (+7 JOURS)\n${
       upcomingItems.length > 0
         ? upcomingItems.join("\n")
         : "- Planning de la semaine en cours d'ajustement."
     }`;
 
-    return `${targetedWorkoutSection}${profileSection}\n\n${pacesSection}\n\n${rulesSection}\n\n${macrocycleSection}\n\n${pastSection}\n\n${upcomingSection}`;
+    return `${targetedWorkoutSection}${profileSection}\n\n${pacesSection}\n\n${rulesSection}\n\n${pastSection}\n\n${upcomingSection}`;
   }
 
   // ============================================================================
@@ -985,7 +1031,7 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
         { "title": "Retour au calme", "durationLabel": "10 min", "type": "cooldown", "flexRatio": 1 }
       ],
       "tags": ["string", "string", "string"],
-      "aiAdjustmentNote": "string (explication personnalisée du coach IA pour cette séance)",
+      "aiAdjustmentNote": "string (explication personnalisée du coach pour cette séance)",
       "tss": number
     }
   ]
@@ -1478,13 +1524,13 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
         dateKey: activeDateKey,
         isRestDay: false,
         category: "ENDURANCE FONDAMENTALE",
-        title: "Footing Léger & Lignes Droites (Adapté IA)",
+        title: "Footing Léger & Lignes Droites (Adapté)",
         duration: "35 min",
         distance: "6,0 km",
         targetPace: easySinglePace,
         targetZoneLabel: "Zone 2",
         targetZoneBpm: "135–148 bpm",
-        aiAdjustmentNote: `Séance allégée (${easySinglePace}) et semaine rééquilibrée par le Coach IA.`,
+        aiAdjustmentNote: `Séance allégée (${easySinglePace}) et semaine rééquilibrée.`,
         tags: ["6,0 km", `Allure : ${easySinglePace}`, "Zone 2"],
       });
     } else if (mode === "easy_run") {
@@ -1492,7 +1538,7 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
         dateKey: activeDateKey,
         isRestDay: false,
         category: "RÉCUPÉRATION ACTIVE",
-        title: "30 min Footing Souple Régénérant (Adapté IA)",
+        title: "30 min Footing Souple Régénérant (Adapté)",
         duration: "30 min",
         distance: "5,0 km",
         targetPace: easySinglePace,
@@ -1506,14 +1552,14 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
         dateKey: activeDateKey,
         isRestDay: false,
         category: "RENFORCEMENT & MOBILITÉ",
-        title: "Mobilité douce & Prévention Sans Impact (Adapté IA)",
+        title: "Mobilité douce & Prévention Sans Impact (Adapté)",
         duration: "20 min",
         distance: "0 km",
         targetPace: "—",
         targetZoneLabel: "Zone 1",
         targetZoneBpm: "< 115 bpm",
         aiAdjustmentNote:
-          "Course suspendue aujourd'hui et fin de semaine assouplie pour protéger tes muscles.",
+          "Course remplacée par 20 min de mobilité douce ; séance suivante assouplie.",
         tags: ["20 min", "Sans impact", "Prévention"],
       });
     } else if (mode === "postpone") {
@@ -1521,14 +1567,14 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
         dateKey: activeDateKey,
         isRestDay: true,
         category: "RÉCUPÉRATION PASSIVE",
-        title: "Repos / Imprévu (Séance reportée par l'IA)",
+        title: "Repos / Imprévu (Séance reportée)",
         duration: "—",
         distance: "0 km",
         targetPace: "—",
         targetZoneLabel: "Zone 1",
         targetZoneBpm: "< 110 bpm",
         aiAdjustmentNote:
-          "Repos placé aujourd'hui suite à ton imprévu, reste de la semaine rééquilibré.",
+          "Repos placé aujourd'hui suite à ton imprévu ; séance proposée sur le prochain jour disponible.",
         tags: ["Repos adapté", "Zéro culpabilité"],
       });
     }
@@ -1553,15 +1599,15 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
           dateKey: w.dateKey,
           isRestDay: false,
           category: "ENDURANCE FONDAMENTALE",
-          title: `${w.title.replace(/\s*\(Rééquilibré IA\)/g, "")} (Rééquilibré IA)`,
+          title: `${w.title.replace(/\s*\(Rééquilibré\)/g, "")} (Rééquilibré)`,
           duration: w.duration === "1h30" ? "1h10" : "45 min",
           distance: w.distance === "16,0 km" ? "12,0 km" : "8,0 km",
           targetPace: easySinglePace,
           targetZoneLabel: "Zone 2",
           targetZoneBpm: "135–148 bpm",
           aiAdjustmentNote:
-            "Charge automatiquement lissée par l'IA pour respecter ton état de forme de la semaine.",
-          tags: ["Rééquilibré IA", `Allure : ${easySinglePace}`, "Zone 2"],
+            "Charge lissée pour respecter ton état de forme de la semaine.",
+          tags: ["Rééquilibré", `Allure : ${easySinglePace}`, "Zone 2"],
         });
         break;
       } else if (mode === "postpone") {
@@ -1570,15 +1616,15 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
           dateKey: w.dateKey,
           isRestDay: false,
           category: "SÉANCE QUALITATIVE",
-          title: `${athleteContext.activeWorkout?.title || "Séance Seuil"} (Reportée IA)`,
+          title: `${athleteContext.activeWorkout?.title || "Séance Seuil"} (Reportée)`,
           duration: athleteContext.activeWorkout?.duration || "1h05",
           distance: athleteContext.activeWorkout?.distance || "12,0 km",
           targetPace: paces.thresholdPaceZ4,
           targetZoneLabel: "Zone 3–4",
           targetZoneBpm: "158–172 bpm",
           aiAdjustmentNote:
-            "Séance clé automatiquement reportée ici en respectant tes jours sanctuarisés.",
-          tags: ["Report IA", `Seuil : ${paces.thresholdPaceZ4}`, "Zone 3/4"],
+            "Séance reportée ici en respectant tes jours sanctuarisés.",
+          tags: ["Report", `Seuil : ${paces.thresholdPaceZ4}`, "Zone 3/4"],
         });
         break;
       }

@@ -953,7 +953,7 @@ async function main() {
       ],
       tags: ["8,5 km", "Allure cible : 4:45/km", "Zone 3/4"],
       aiAdjustmentNote:
-        "L'IA a ajusté le seuil pour préserver tes mollets aujourd'hui.",
+        "Travail de seuil : vise la zone cible sans forcer si la fatigue s'installe.",
     },
     {
       userId: user.id,
@@ -1443,7 +1443,7 @@ async function main() {
       rating: 5,
       feedbackLabel: "Modéré",
       aiPreservationMessage:
-        "L'IA a ajusté le seuil pour préserver tes mollets aujourd'hui.",
+        "Effort modéré, cohérent avec l'intention de la séance. Rien à ajuster dans ton plan sur cette base.",
       submittedAt: new Date("2026-10-14T18:35:00.000Z"),
     },
   });

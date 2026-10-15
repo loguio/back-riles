@@ -221,8 +221,16 @@ export interface MultiWeekPlanGenerationOutput {
   workouts: GeneratedWorkoutItemDto[];
 }
 
+/** RILES-028 — Un tour de conversation re-soumis au LLM (fenêtre bornée). */
+export interface CoachChatTurn {
+  role: "user" | "assistant";
+  text: string;
+}
+
 export interface LlmCoachReplyInput {
   userPrompt: string;
+  /** RILES-028 — Fenêtre bornée des messages récents (chronologique). */
+  conversationHistory?: CoachChatTurn[];
   athleteContext: {
     userName?: string;
     readinessScore?: number;

@@ -75,13 +75,33 @@ const WEEK_WORKOUTS = [
 ];
 
 function createPrismaStub() {
-  return {
+  const chatStore: any[] = [];
+  let msgSeq = 0;
+  const stub: any = {
     chatMessage: {
-      create: jest.fn(async ({ data }: any) => ({
-        id: `msg-${Math.random().toString(36).slice(2, 8)}`,
-        ...data,
-      })),
-      update: jest.fn(async () => ({})),
+      create: jest.fn(async ({ data }: any) => {
+        const row = { id: `msg-${++msgSeq}`, ...data };
+        chatStore.push(row);
+        return row;
+      }),
+      findFirst: jest.fn(async ({ where }: any) => {
+        return (
+          chatStore.find(
+            (m) =>
+              m.id === where.id &&
+              m.userId === where.userId &&
+              (where.sender === undefined || m.sender === where.sender),
+          ) ?? null
+        );
+      }),
+      findMany: jest.fn(async () => []),
+      update: jest.fn(async ({ where, data }: any) => {
+        const row = chatStore.find((m) => m.id === where.id);
+        if (row) {
+          Object.assign(row, data);
+        }
+        return row ?? {};
+      }),
       deleteMany: jest.fn(async () => ({ count: 0 })),
     },
     user: {
@@ -97,8 +117,11 @@ function createPrismaStub() {
     },
     lifeRule: {
       create: jest.fn(async ({ data }: any) => ({ id: "rule-1", ...data })),
+      deleteMany: jest.fn(async () => ({ count: 1 })),
     },
   };
+  stub.$transaction = jest.fn(async (fn: any) => fn(stub));
+  return stub;
 }
 
 function createLlmStub() {
@@ -243,8 +266,8 @@ describe("RILES-011 CoachService.processMessage — aucune écriture issue d'une
     expect(response.coachReply.suggestedAction).toBeUndefined();
   });
 
-  it("n'écrit que les dateKeys appartenant à la semaine de l'athlète (liste blanche)", async () => {
-    const { prisma, response } = await runChat({
+  it("n'expose en proposition que les dateKeys de la semaine de l'athlète, et n'écrit qu'à la confirmation (RILES-019)", async () => {
+    const { prisma, service, response } = await runChat({
       replyText: "Semaine rééquilibrée.",
       safetyStatus: "safe",
       suggestedAction: {
@@ -272,22 +295,49 @@ describe("RILES-011 CoachService.processMessage — aucune écriture issue d'une
       modelUsed: "gemini-3.8-flash",
     });
 
+    // RILES-019 — processMessage n'écrit plus rien : la modification devient
+    // une proposition (diff avant/après) en attente de confirmation.
+    expect(prisma.workout.updateMany).not.toHaveBeenCalled();
+    const action = response.coachReply.suggestedAction;
+    expect(action?.pendingConfirmation).toBe(true);
+    expect(action?.applied).toBe(false);
+    expect(action?.proposal?.kind).toBe("week_changes");
+
+    const proposedKeys = (action?.proposal?.weekChanges || []).map(
+      (c: any) => c.dateKey,
+    );
+    expect(proposedKeys).toEqual([TOMORROW_KEY]);
+    expect(proposedKeys).not.toContain(OUTSIDE_WEEK_KEY);
+    // Le diff contient bien l'état initial (annulable) et la cible
+    expect(action?.proposal?.weekChanges?.[0]?.before).toMatchObject({
+      title: "Endurance fondamentale",
+    });
+    expect(action?.proposal?.weekChanges?.[0]?.after).toMatchObject({
+      title: "Footing léger",
+      duration: "35 min",
+    });
+    // La réponse ne prétend pas que le changement a eu lieu
+    expect(response.coachReply.text).toContain("rien n'est encore appliqué");
+
+    // Confirmation : exactement la dateKey proposée est écrite, et elle seule
+    await service.confirmAction(USER_ID, response.coachReply.id);
     expect(prisma.workout.updateMany).toHaveBeenCalledTimes(1);
     expect(prisma.workout.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { userId: USER_ID, dateKey: TOMORROW_KEY },
       }),
     );
-    expect(response.coachReply.suggestedAction?.applied).toBe(true);
-    // La ligne hors semaine n'a jamais été ciblée
     const targetedKeys = prisma.workout.updateMany.mock.calls.map(
       (call: any[]) => call[0]?.where?.dateKey,
     );
     expect(targetedKeys).not.toContain(OUTSIDE_WEEK_KEY);
+    expect(
+      prisma.chatMessage.update.mock.calls[0][0].data.suggestedAction.applied,
+    ).toBe(true);
   });
 
-  it("une règle de vie conforme reste créée (contrôle positif)", async () => {
-    const { prisma, response } = await runChat({
+  it("une règle de vie conforme est proposée puis créée à la confirmation (RILES-019)", async () => {
+    const { prisma, service, response } = await runChat({
       replyText: "C'est noté et reformulé dans tes règles.",
       safetyStatus: "safe",
       suggestedAction: {
@@ -304,6 +354,22 @@ describe("RILES-011 CoachService.processMessage — aucune écriture issue d'une
       modelUsed: "gemini-3.8-flash",
     });
 
+    // RILES-019 — aucune création immédiate : la règle est une proposition
+    expect(prisma.lifeRule.create).not.toHaveBeenCalled();
+    const action = response.coachReply.suggestedAction;
+    expect(action?.pendingConfirmation).toBe(true);
+    expect(action?.applied).toBe(false);
+    expect(action?.proposal?.kind).toBe("life_rule");
+    expect(action?.proposal?.lifeRule).toMatchObject({
+      title: "Pas de course le samedi",
+      description: "Je suis indisponible le samedi matin.",
+      icon: "calendar-lock",
+    });
+    expect(action?.label).toContain("À confirmer");
+    expect(prisma.workout.updateMany).not.toHaveBeenCalled();
+
+    // Confirmation : la règle est créée une seule fois
+    const applied = await service.confirmAction(USER_ID, response.coachReply.id);
     expect(prisma.lifeRule.create).toHaveBeenCalledTimes(1);
     expect(prisma.lifeRule.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -313,10 +379,9 @@ describe("RILES-011 CoachService.processMessage — aucune écriture issue d'une
         }),
       }),
     );
-    expect(response.coachReply.suggestedAction?.applied).toBe(true);
-    expect(response.coachReply.suggestedAction?.label).toContain(
-      "Règle reformulée & enregistrée",
-    );
+    expect(applied.applied).toBe(true);
+    expect(applied.pendingConfirmation).toBe(false);
+    expect(applied.proposal?.lifeRule?.ruleId).toBe("rule-1");
     expect(prisma.workout.updateMany).not.toHaveBeenCalled();
   });
 
@@ -340,5 +405,45 @@ describe("RILES-011 CoachService.processMessage — aucune écriture issue d'une
 
     expect(prisma.lifeRule.create).not.toHaveBeenCalled();
     expect(response.coachReply.suggestedAction).toBeUndefined();
+  });
+});
+
+describe("RILES-028 — l'historique récent du chat est re-soumis au LLM", () => {
+  it("passe la fenêtre chronologique (hors récap legacy) à generateCoachReply", async () => {
+    const ctx = buildService();
+    ctx.prisma.chatMessage.findMany.mockResolvedValue([
+      { id: "m3", sender: "coach", text: "Je te propose de courir en Z2." },
+      { id: "m2", sender: "user", text: "Je suis fatigué hier soir" },
+      {
+        id: "m1",
+        sender: "coach",
+        text: "\ud83d\udccb Plan multi-semaines généré (ancien récap)",
+      },
+    ]);
+    ctx.llm.generateCoachReply.mockResolvedValue({
+      replyText: "Bien sûr, on garde le fil.",
+      safetyStatus: "safe",
+      modelUsed: "gemini-3.8-flash",
+    });
+
+    await ctx.service.processMessage(USER_ID, { text: "comme tu disais ?" });
+
+    const input = ctx.llm.generateCoachReply.mock.calls[0][0];
+    expect(input.userPrompt).toBe("comme tu disais ?");
+    // Fenêtre bornée à 12 messages, uniquement user/coach
+    expect(ctx.prisma.chatMessage.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          sender: { in: ["user", "coach"] },
+        }),
+        take: 12,
+      }),
+    );
+    // findMany renvoie l'ordre desc : la fenêtre est inversée en chronologique,
+    // l'ancien récapitulatif de plan est exclu du prompt.
+    expect(input.conversationHistory).toEqual([
+      { role: "user", text: "Je suis fatigué hier soir" },
+      { role: "assistant", text: "Je te propose de courir en Z2." },
+    ]);
   });
 });
