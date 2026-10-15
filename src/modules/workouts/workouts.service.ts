@@ -14,6 +14,24 @@ import {
 import { WorkoutStatus } from "@prisma/client";
 import { runInTransaction } from "../../prisma/transaction";
 
+/**
+ * Convertit une durée d'affichage ("1h15", "45 min", "—") en minutes.
+ * Retourne 0 pour les valeurs vides/non parsées.
+ */
+function parseDurationStringToMin(duration?: string | null): number {
+  if (!duration) return 0;
+  const hourMatch = duration.match(/(\d+)\s*h\s*(\d+)?/i);
+  if (hourMatch) {
+    const h = parseInt(hourMatch[1], 10);
+    const m = hourMatch[2] ? parseInt(hourMatch[2], 10) : 0;
+    return h * 60 + m;
+  }
+  const minMatch = duration.match(/(\d+)\s*min/i);
+  if (minMatch) return parseInt(minMatch[1], 10);
+  const bare = duration.match(/^(\d+)$/);
+  return bare ? parseInt(bare[1], 10) : 0;
+}
+
 @Injectable()
 export class WorkoutsService {
   constructor(
@@ -262,6 +280,26 @@ export class WorkoutsService {
         aiPreservationMessage,
       },
     });
+
+    // RILES-027 : charge interne sRPE = RPE × durée(min), stockée sur la
+    // séance. Sert de charge de repli quand la FC manque (voir
+    // training-science.computeSessionTss, chemin sRPE).
+    if (dto.workoutId) {
+      const workout = await this.prisma.workout.findFirst({
+        where: { id: dto.workoutId, userId },
+      });
+      if (workout) {
+        const durationMin =
+          (workout.actualDurationSec ?? 0) > 0
+            ? (workout.actualDurationSec as number) / 60
+            : parseDurationStringToMin(workout.duration);
+        const sRpe = Math.round(dto.rating * durationMin);
+        await this.prisma.workout.update({
+          where: { id: workout.id },
+          data: { sRpe },
+        });
+      }
+    }
 
     // Enregistrement asynchrone non-bloquant dans le Data Lake
     this.dataLakeService.logTrainingInteraction({

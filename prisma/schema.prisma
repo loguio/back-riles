@@ -52,6 +52,11 @@ model User {
   tsbForm        Float  @default(0)   // Balance de stress (Forme = CTL - ATL)
   sleepScore     Int    @default(0)
   hrvStatus      String @default("")
+  // FC max de l'athlète (RILES-021) : l'IF/TSS est calculé sur cette valeur,
+  // jamais sur la FC max observée sur la séance. `null` = estimation
+  // documentée (DEFAULT_ATHLETE_HRMAX).
+  hrMax  Int?
+  restHr Int?
 
   // Account Preferences & State
   planType              PlanType     @default(PRO)
@@ -114,6 +119,7 @@ model Workout {
   tags               String[]      @default([])
   aiAdjustmentNote   String?
   tss                Float?        // Training Stress Score de la séance
+  sRpe               Float?        // Charge sRPE = RPE × durée(min) (RILES-027)
 
   // Données complètes de la vraie séance réalisée (récupérées via Webhooks Strava / Garmin / Apple Santé)
   // Unique : une activité externe ne peut être écrite qu'une seule fois

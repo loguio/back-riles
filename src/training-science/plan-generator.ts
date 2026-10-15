@@ -68,14 +68,39 @@ export function getLockedDayNamesFromRules(lifeRules: LifeRule[]): Set<string> {
 }
 
 /**
- * Démarrage adapté et progressif : ~80-85% du volume habituel pour commencer en douceur.
- * Si habitué à 25-30 km, on démarre à ~22-24 km (pas à 40 km d'entrée de jeu, ni à un niveau ridicule).
+ * Volume par défaut (km/sem) pour un athlète sans historique synchronisé —
+ * documentation : moyenne des coureurs amateurs de l'app, aucun kilométrage
+ * fabriqué (RILES-014 / RILES-024).
+ */
+export const DEFAULT_RECENT_WEEKLY_KM = 25;
+
+/**
+ * Démarrage adapté et progressif : ~82 % du volume récent de l'athlète
+ * (moyenne des 4 dernières semaines) pour commencer en douceur.
+ *
+ * RILES-024 : plus de clamp absolu 18–30 km/sem — le démarrage est
+ * **proportionné à l'athlète** (un débutant à 20 km/sem démarre à ~16 km,
+ * un coureur à 60 km/sem démarre à ~49 km, pas à 30). Sans historique, on
+ * retombe sur `DEFAULT_RECENT_WEEKLY_KM` (documenté, pas un chiffre fabriqué
+ * au hasard).
  */
 export function deriveStartWeeklyKm(baseRecentKm: number): number {
-  return Math.max(18, Math.min(30, Math.round(baseRecentKm * 0.82)));
+  const base =
+    baseRecentKm && baseRecentKm > 0 ? baseRecentKm : DEFAULT_RECENT_WEEKLY_KM;
+  return Math.max(5, Math.round(base * 0.82));
 }
 
-// Modèle physiologique de périodisation 3:1 avec règle des 10 %
+/**
+ * Modèle physiologique de périodisation 3:1 (RILES-024).
+ *
+ * - `peakVolume(cycle) = start × 1.21 × 1.10^cycle` : la progression de pic à
+ *   pic est bornée à +10 % par cycle de 4 semaines (règle des 10 %,
+ *   RILES-023) — l'ancien facteur 1.15 par cycle sautait la garde-fou.
+ * - Le socle du cycle suivant (×0.94 du pic précédent) est une **régression
+ *   planifiée d'assimilation** (le deload de fin de bloc), pas une régression
+ *   de programme : le pic est régulièrement dépassé dès la semaine 2 du cycle.
+ * - Dans un cycle : +0 %, +10 %, +21 % puis deload −22 % (3:1).
+ */
 export function computePeriodizedWeekMetrics(
   weekIndex: number,
   totalWeeks: number,
@@ -85,7 +110,7 @@ export function computePeriodizedWeekMetrics(
   if (isTapering) {
     const peakCycleIdx = Math.floor((totalWeeks - 3) / 4);
     const peakVolume = Math.round(
-      startWeeklyKm * Math.pow(1.15, peakCycleIdx) * 1.21,
+      startWeeklyKm * 1.21 * Math.pow(1.1, peakCycleIdx),
     );
     const taperRatio = weekIndex === totalWeeks - 1 ? 0.55 : 0.75;
     return {
@@ -99,7 +124,7 @@ export function computePeriodizedWeekMetrics(
   const cycleIndex = Math.floor(weekIndex / 4);
   const posInCycle = weekIndex % 4; // 0, 1, 2 = montée ; 3 = deload
 
-  const cycleBase = startWeeklyKm * Math.pow(1.15, cycleIndex);
+  const cycleBase = startWeeklyKm * Math.pow(1.1, cycleIndex);
 
   if (posInCycle === 0) {
     return {
@@ -276,7 +301,7 @@ export function generatePeriodizedMultiWeekFallback(
   const baseRecentKm =
     input.sixMonthsStravaSummary?.recent4WeeksAvgKm ||
     input.physiologicalState?.recentWeeklyKm ||
-    28;
+    DEFAULT_RECENT_WEEKLY_KM;
   // Démarrage adapté et progressif : ~80-85% du volume habituel pour commencer en douceur
   // Si habitué à 25-30 km, on démarre à ~22-24 km (pas à 40 km d'entrée de jeu, ni à un niveau ridicule)
   const startWeeklyKm = deriveStartWeeklyKm(baseRecentKm);

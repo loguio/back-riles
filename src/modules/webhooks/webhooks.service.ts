@@ -489,6 +489,13 @@ export class WebhooksService {
         ? this.mapLiveStravaActivitiesToWorkouts(userId, liveActivities)
         : [];
 
+    // RILES-021 : FC max de l'athlète (hors transaction, lecture seule) pour
+    // calculer l'IF/TSS — jamais la FC max observée sur la séance.
+    const athlete = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { hrMax: true },
+    });
+
     // 3-6. RILES-031 : import atomique. Le createMany d'historique, les
     // upserts des séances réalisées, la mise à jour du profil utilisateur et
     // le résumé SyncToken sont écrits dans UNE seule transaction : un échec
@@ -554,9 +561,12 @@ export class WebhooksService {
         orderBy: { dateKey: "asc" },
       });
 
+      // RILES-021 : la FC max de l'athlète est lue hors transaction (athlete).
       const computedSummary = this.computeSixMonthsSummaryFromWorkouts(
         allSixMonthsWorkouts,
         sourceMode,
+        undefined,
+        athlete?.hrMax ?? undefined,
       );
 
       // 5. Mise à jour du profil User (totalKm 6 mois, activeWeeks, charge Banister réelle CTL/ATL/TSB)
@@ -1105,6 +1115,11 @@ export class WebhooksService {
       },
     });
 
+    // RILES-021 : FC max de l'athlète (IF/TSS calculé dessus, plus sur la FC
+    // max observée de la séance).
+    const athlete = await this.prisma.user.findUnique({ where: { id: userId } });
+    const athleteHrMax = athlete?.hrMax ?? undefined;
+
     const paceLabel = executed.actualPace;
     const hrLabel = executed.actualAvgHeartRate
       ? ` • ${executed.actualAvgHeartRate} bpm moy`
@@ -1121,6 +1136,7 @@ export class WebhooksService {
       distanceKm: executed.actualDistanceKm,
       avgHeartRate: executed.actualAvgHeartRate,
       maxHeartRate: executed.actualMaxHeartRate,
+      hrMax: athleteHrMax,
     });
 
     const durMins = Math.round(executed.actualDurationSec / 60);
@@ -2326,7 +2342,10 @@ export class WebhooksService {
   public computeSixMonthsSummaryFromWorkouts(
     workouts: any[],
     sourceMode:
-      "strava_oauth_live" | "strava_history_import" = "strava_history_import",
+      | "strava_oauth_live"
+      | "strava_history_import" = "strava_history_import",
+    todayDateKey?: string,
+    athleteHrMax?: number,
   ): StravaSixMonthsSummaryDto {
     if (!workouts || workouts.length === 0) {
       const defaultPaces = this.llmService.computePacesFromRecentPerformance({
@@ -2409,11 +2428,21 @@ export class WebhooksService {
       string,
       { label: string; km: number; sec: number; count: number; runSec: number }
     >();
-    const recent4WeeksKm = new Map<number, number>();
+    const recent4WeeksKm = new Map<string, number>();
+    const dailyTssByDate = new Map<string, number>();
     const runningWorkouts: any[] = [];
 
-    let ctl = 28;
-    let atl = 28;
+    // RILES-020 / RILES-022 : jour de référence pour la fenêtre glissante et
+    // rejeu journalier. Ancre = aujourd'hui (fourni) ou dernière activité.
+    const DAY_MS = 86_400_000;
+    const RECENT_WINDOW_DAYS = 28;
+    const parseDayMs = (dateKey?: string): number => {
+      const ms = Date.parse(`${dateKey}T00:00:00Z`);
+      return Number.isNaN(ms) ? NaN : ms;
+    };
+    const anchorDateKey =
+      todayDateKey || workouts[workouts.length - 1]?.dateKey || "";
+    const anchorMs = parseDayMs(anchorDateKey);
 
     for (const w of workouts) {
       if (w.isCommute) {
@@ -2437,6 +2466,7 @@ export class WebhooksService {
       const dist = Number(w.actualDistanceKm || 0);
       const sec = Number(w.actualDurationSec || 0);
       const elev = Number(w.actualElevationGain || 0);
+      const runMs = parseDayMs(w.dateKey);
       const tss =
         w.tss ??
         this.llmService.computeSessionTss({
@@ -2444,6 +2474,8 @@ export class WebhooksService {
           distanceKm: isRun ? dist : Math.max(4, sec / 360),
           avgHeartRate: w.actualAvgHeartRate,
           maxHeartRate: w.actualMaxHeartRate,
+          hrMax: athleteHrMax,
+          srpe: w.sRpe,
         });
 
       totalDurationSec += sec;
@@ -2476,11 +2508,16 @@ export class WebhooksService {
 
       distinctWeeks.add(`${w.year}-W${w.weekNumber}`);
 
-      if (isRun && w.weekNumber >= 38 && w.weekNumber <= 41) {
-        recent4WeeksKm.set(
-          w.weekNumber,
-          (recent4WeeksKm.get(w.weekNumber) || 0) + dist,
-        );
+      // RILES-022 : fenêtre « 4 dernières semaines » glissante à partir du
+      // jour de référence (28 jours), plus de semaines ISO codées en dur.
+      if (isRun && !Number.isNaN(anchorMs) && !Number.isNaN(runMs)) {
+        const withinWindow =
+          runMs <= anchorMs &&
+          runMs >= anchorMs - (RECENT_WINDOW_DAYS - 1) * DAY_MS;
+        if (withinWindow) {
+          const weekKey = `${w.year}-W${w.weekNumber}`;
+          recent4WeeksKm.set(weekKey, (recent4WeeksKm.get(weekKey) || 0) + dist);
+        }
       }
 
       const monthKey = `${w.year}-${String((w.month ?? 0) + 1).padStart(2, "0")}`;
@@ -2499,10 +2536,23 @@ export class WebhooksService {
       existingMonth.count += 1;
       byMonth.set(monthKey, existingMonth);
 
-      const loadUpdate = this.llmService.updateBanisterLoad(atl, ctl, tss);
-      atl = loadUpdate.atlFatigue;
-      ctl = loadUpdate.ctlFitness;
+      // RILES-020 : on accumule la charge par jour civil ; le modèle de
+      // Banister sera rejoué une fois par jour après la boucle.
+      if (tss > 0) {
+        dailyTssByDate.set(w.dateKey, (dailyTssByDate.get(w.dateKey) || 0) + tss);
+      }
     }
+
+    // RILES-020 : rejeu EWMA par jour civil (les jours sans séance décadent).
+    const dailySeries = this.llmService.buildDailyTssSeries(
+      Array.from(dailyTssByDate.entries()).map(([dateKey, tss]) => ({
+        dateKey,
+        tss,
+      })),
+    );
+    const replayed = this.llmService.replayBanisterDaily(dailySeries);
+    const atl = replayed.atlFatigue;
+    const ctl = replayed.ctlFitness;
 
     const activeWeeks = Math.max(1, distinctWeeks.size);
     const roundedRunningKm = Number(runningDistanceKm.toFixed(1));
@@ -2549,10 +2599,8 @@ export class WebhooksService {
       }));
 
     const tsbForm = Number((ctl - atl).toFixed(1));
-    const readinessScore = Math.max(
-      45,
-      Math.min(96, Math.round(84 + tsbForm * 0.6)),
-    );
+    // RILES-026 : le readiness pondère TSB, sommeil et HRV (voir training-science).
+    const readinessScore = this.llmService.computeReadinessScore(tsbForm);
     const roundedCtl = Number(ctl.toFixed(1));
     const crossTrainingCount =
       cyclingSessions + swimmingSessions + strengthAndOtherSessions;

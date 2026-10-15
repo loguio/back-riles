@@ -12,13 +12,17 @@ import {
 } from "./dto/llm.dto";
 import { validateCoachReplyOutput } from "./validation/coach-reply.validator";
 import {
+  buildDailyTssSeries,
+  clampWeeklyVolumeRamp,
   computePacesFromRecentPerformance,
+  computeReadinessScore,
   computeSessionTss,
   extractSessionMetricsFromWorkouts,
   generatePeriodizedMultiWeekFallback,
   getEasySinglePace,
   getLockedDayNamesFromRules,
   normalizeGeneratedWorkout,
+  replayBanisterDaily,
   updateBanisterLoad,
 } from "../../training-science";
 
@@ -801,6 +805,9 @@ Réponds UNIQUEMENT avec un objet JSON valide :
           distanceKm?: number;
           avgHeartRate?: number;
           maxHeartRate?: number;
+          hrMax?: number;
+          rpe?: number;
+          srpe?: number;
         },
     avgHeartRateArg?: number,
     hrMaxArg = 190,
@@ -836,6 +843,54 @@ Réponds UNIQUEMENT avec un objet JSON valide :
     readinessScore: number;
   } {
     return updateBanisterLoad(currentAtlOrObj, currentCtlArg, sessionTssArg);
+  }
+
+  /**
+   * Rejoue l'EWMA de Banister une fois par jour civil (RILES-020).
+   *
+   * Implémentation pure dans src/training-science/.
+   */
+  public replayBanisterDaily(
+    days: number[],
+    options: { sleepScore?: number; hrvStatus?: string } = {},
+  ): { atlFatigue: number; ctlFitness: number; tsbForm: number; readinessScore: number; steps: number } {
+    return replayBanisterDaily(days, options);
+  }
+
+  /**
+   * Étale des charges TSS sur tous les jours civils d'une période (RILES-020).
+   *
+   * Implémentation pure dans src/training-science/.
+   */
+  public buildDailyTssSeries(
+    entries: Array<{ dateKey: string; tss: number }>,
+  ): number[] {
+    return buildDailyTssSeries(entries);
+  }
+
+  /**
+   * Score de readiness pondérant TSB, sommeil et HRV (RILES-026).
+   *
+   * Implémentation pure dans src/training-science/.
+   */
+  public computeReadinessScore(
+    tsbForm: number,
+    sleepScore?: number,
+    hrvStatus?: string,
+  ): number {
+    return computeReadinessScore(tsbForm, sleepScore, hrvStatus);
+  }
+
+  /**
+   * Garde-fou +10 % de volume hebdomadaire (RILES-023).
+   *
+   * Implémentation pure dans src/training-science/.
+   */
+  public clampWeeklyVolumeRamp(
+    proposedKm: number,
+    referenceKm: number,
+  ): { km: number; clamped: boolean } {
+    return clampWeeklyVolumeRamp(proposedKm, referenceKm);
   }
 
   /**
@@ -1192,27 +1247,30 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
         lowerText.includes("trop léger") ||
         lowerText.includes("trop court");
 
-      const recalculated = this.buildRecalculatedWeekForVolume(
-        athleteContext,
-        isIncrease ? "increase" : "decrease",
-        paces,
-      );
+      const { workouts: recalculated, rampClamped, effectiveIncreasePct } =
+        this.buildRecalculatedWeekForVolume(
+          athleteContext,
+          isIncrease ? "increase" : "decrease",
+          paces,
+        );
 
       const replyText = isIncrease
-        ? `J'ai ajusté ton volume hebdomadaire à la hausse de façon progressive (+15%) pour protéger tes tendons et ta récupération. Les séances d'endurance fondamentale et la sortie longue ont été recalculées en conséquence.`
+        ? rampClamped
+          ? `J'ai augmenté ton volume hebdomadaire de +${effectiveIncreasePct} % — plafonné par la règle des +10 % par semaine (moyenne de tes 4 dernières semaines) pour préserver tes tendons. On gardera la tête froide une semaine avant d'en remettre une couche.`
+          : `J'ai ajusté ton volume hebdomadaire à la hausse de façon progressive (+${effectiveIncreasePct}%) pour protéger tes tendons et ta récupération. Les séances d'endurance fondamentale et la sortie longue ont été recalculées en conséquence.`
         : `J'ai allégé le volume kilométrique de ta semaine (-15%) suite à ton retour pour préserver ta fraîcheur. Tes séances restent calibrées sur tes allures cibles sans surcharge inutile.`;
 
       return {
         replyText,
         reformulatedIntent: isIncrease
-          ? "Augmentation progressive du volume kilométrique (+15%)"
+          ? `Augmentation progressive du volume kilométrique (+${effectiveIncreasePct}%)`
           : "Allègement du volume kilométrique (-15%)",
         safetyStatus: "safe",
         recalculatedWeekWorkouts: recalculated,
         suggestedAction: {
           type: "recalculate_week",
           label: isIncrease
-            ? "Volume hebdomadaire augmenté (+15% en Z2)"
+            ? `Volume hebdomadaire augmenté (+${effectiveIncreasePct}% en Z2)`
             : "Volume hebdomadaire allégé (-15%)",
           applied: true,
           details: isIncrease ? "increase_volume" : "decrease_volume",
@@ -1287,11 +1345,45 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
     athleteContext: LlmCoachReplyInput["athleteContext"],
     mode: "increase" | "decrease",
     paces: TargetPacesDto,
-  ): NonNullable<LlmCoachReplyOutput["recalculatedWeekWorkouts"]> {
+  ): {
+    workouts: NonNullable<LlmCoachReplyOutput["recalculatedWeekWorkouts"]>;
+    rampClamped: boolean;
+    effectiveIncreasePct: number;
+  } {
     const result: NonNullable<LlmCoachReplyOutput["recalculatedWeekWorkouts"]> =
       [];
     const weekWorkouts = athleteContext.currentWeekWorkouts || [];
-    const factor = mode === "increase" ? 1.15 : 0.85;
+
+    // Garde-fou d'entraînement (RILES-023) : la demande « plus dur » vaut
+    // +15 % sur la semaine, mais le volume final ne peut jamais dépasser
+    // +10 % au-dessus de la moyenne des 4 dernières semaines.
+    const parseKm = (distance?: string): number => {
+      const m = distance ? distance.replace(",", ".").match(/(\d+(\.\d+)?)/) : null;
+      const km = m ? parseFloat(m[1]) : NaN;
+      return isNaN(km) ? 0 : km;
+    };
+    const currentWeekKm = weekWorkouts.reduce(
+      (sum, w) => sum + (w.isRestDay ? 0 : parseKm(w.distance)),
+      0,
+    );
+    const referenceKm =
+      athleteContext.trainingContext?.recent4WeeksAvgKm ||
+      athleteContext.trainingContext?.recentWeeklyKm ||
+      currentWeekKm;
+
+    let factor = mode === "increase" ? 1.15 : 0.85;
+    let rampClamped = false;
+    if (mode === "increase" && currentWeekKm > 0) {
+      const clamped = clampWeeklyVolumeRamp(
+        currentWeekKm * factor,
+        referenceKm,
+      );
+      if (clamped.clamped) {
+        rampClamped = true;
+        factor = clamped.km / currentWeekKm;
+      }
+    }
+    const effectiveIncreasePct = Math.round((factor - 1) * 100);
     const easySinglePace = getEasySinglePace(paces);
 
     for (const w of weekWorkouts) {
@@ -1300,16 +1392,11 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
       }
 
       // Extraire la distance numérique
-      const distMatch = w.distance
-        ? w.distance.replace(",", ".").match(/(\d+(\.\d+)?)/)
-        : null;
+      const currentKm = parseKm(w.distance);
       let newDistStr = w.distance;
-      if (distMatch) {
-        const currentKm = parseFloat(distMatch[1]);
-        if (!isNaN(currentKm) && currentKm > 0) {
-          const newKm = Math.round(currentKm * factor * 10) / 10;
-          newDistStr = `${newKm.toString().replace(".", ",")} km`;
-        }
+      if (currentKm > 0) {
+        const newKm = Math.round(currentKm * factor * 10) / 10;
+        newDistStr = `${newKm.toString().replace(".", ",")} km`;
       }
 
       // Extraire la durée
@@ -1335,7 +1422,9 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
 
       const note =
         mode === "increase"
-          ? `Volume ajusté à la hausse (+15%) en restant en Zone 2 pour assimiler la charge sans risque.`
+          ? rampClamped
+            ? `Volume ajusté à la hausse (+${effectiveIncreasePct}%) — j'ai plafonné ta semaine pour rester sous la règle des +10 % hebdomadaires et protéger tes tendons.`
+            : `Volume ajusté à la hausse (+${effectiveIncreasePct}%) en restant en Zone 2 pour assimiler la charge sans risque.`
           : `Volume allégé (-15%) à ta demande pour optimiser la fraîcheur et la récupération.`;
 
       result.push({
@@ -1354,12 +1443,14 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
         tags: [
           newDistStr,
           newDuration,
-          mode === "increase" ? "Volume +15%" : "Volume -15%",
+          mode === "increase"
+            ? `Volume +${effectiveIncreasePct}%`
+            : "Volume -15%",
         ],
       });
     }
 
-    return result;
+    return { workouts: result, rampClamped, effectiveIncreasePct };
   }
 
   /**
