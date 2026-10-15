@@ -2444,7 +2444,7 @@
     "tss": [
       80,
       73,
-      72,
+      69,
       20,
       65,
       0,
@@ -2469,7 +2469,7 @@
         "atlFatigue": 47.3,
         "ctlFitness": 54,
         "tsbForm": 6.7,
-        "readinessScore": 86
+        "readinessScore": 92
       },
       {
         "atlFatigue": 51.4,
@@ -4293,9 +4293,9 @@
             "timeLabel": "18:30",
             "isRestDay": false,
             "category": "SÉANCE QUALITATIVE",
-            "title": "Séance Seuil 3 × 8 min (8,3 km)",
-            "duration": "46 min",
-            "distance": "8,3 km",
+            "title": "Séance Seuil 3 × 8 min (8,1 km)",
+            "duration": "45 min",
+            "distance": "8,1 km",
             "targetPace": "3:43/km",
             "targetZoneLabel": "Zone 3–4",
             "targetZoneBpm": "160–173 bpm",
@@ -4335,12 +4335,12 @@
               }
             ],
             "tags": [
-              "8,3 km",
+              "8,1 km",
               "Seuil : 3:43/km",
               "Zone 3/4"
             ],
             "aiAdjustmentNote": "Séance clé au seuil (3:43/km) pour repousser l'acidose lactique.",
-            "tss": 54
+            "tss": 53
           },
           {
             "dateKey": "2026-11-19",
@@ -4392,9 +4392,9 @@
             "timeLabel": "12:30",
             "isRestDay": false,
             "category": "ALLURE SPÉCIFIQUE",
-            "title": "Footing Progressif & Allure Cible (5,8 km)",
-            "duration": "33 min",
-            "distance": "5,8 km",
+            "title": "Footing Progressif & Allure Cible (5,6 km)",
+            "duration": "32 min",
+            "distance": "5,6 km",
             "targetPace": "4:03/km",
             "targetZoneLabel": "Zone 3",
             "targetZoneBpm": "150–162 bpm",
@@ -4434,12 +4434,12 @@
               }
             ],
             "tags": [
-              "5,8 km",
+              "5,6 km",
               "Allure : 4:03/km",
               "Zone 3"
             ],
             "aiAdjustmentNote": "Travail d'économie de course à allure cible avant la sortie longue.",
-            "tss": 32
+            "tss": 31
           },
           {
             "dateKey": "2026-11-21",
@@ -4452,9 +4452,9 @@
             "timeLabel": "09:00",
             "isRestDay": false,
             "category": "SORTIE LONGUE",
-            "title": "Sortie Longue Progressive (10,9 km)",
-            "duration": "1h04",
-            "distance": "10,9 km",
+            "title": "Sortie Longue Progressive (10,5 km)",
+            "duration": "1h02",
+            "distance": "10,5 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "136–150 bpm",
@@ -4494,12 +4494,12 @@
               }
             ],
             "tags": [
-              "10,9 km",
+              "10,5 km",
               "Endurance : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 32 km).",
-            "tss": 63
+            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 31 km).",
+            "tss": 61
           },
           {
             "dateKey": "2026-11-22",
@@ -4650,9 +4650,9 @@
             "timeLabel": "18:30",
             "isRestDay": false,
             "category": "SÉANCE QUALITATIVE",
-            "title": "Séance Seuil 3 × 8 min (9,1 km)",
-            "duration": "51 min",
-            "distance": "9,1 km",
+            "title": "Séance Seuil 3 × 8 min (8,8 km)",
+            "duration": "49 min",
+            "distance": "8,8 km",
             "targetPace": "3:43/km",
             "targetZoneLabel": "Zone 3–4",
             "targetZoneBpm": "160–173 bpm",
@@ -4692,12 +4692,12 @@
               }
             ],
             "tags": [
-              "9,1 km",
+              "8,8 km",
               "Seuil : 3:43/km",
               "Zone 3/4"
             ],
             "aiAdjustmentNote": "Séance clé au seuil (3:43/km) pour repousser l'acidose lactique.",
-            "tss": 59
+            "tss": 57
           },
           {
             "dateKey": "2026-11-26",
@@ -4749,9 +4749,9 @@
             "timeLabel": "12:30",
             "isRestDay": false,
             "category": "ALLURE SPÉCIFIQUE",
-            "title": "Footing Progressif & Allure Cible (6,3 km)",
-            "duration": "36 min",
-            "distance": "6,3 km",
+            "title": "Footing Progressif & Allure Cible (6,1 km)",
+            "duration": "35 min",
+            "distance": "6,1 km",
             "targetPace": "4:03/km",
             "targetZoneLabel": "Zone 3",
             "targetZoneBpm": "150–162 bpm",
@@ -4791,12 +4791,12 @@
               }
             ],
             "tags": [
-              "6,3 km",
+              "6,1 km",
               "Allure : 4:03/km",
               "Zone 3"
             ],
             "aiAdjustmentNote": "Travail d'économie de course à allure cible avant la sortie longue.",
-            "tss": 35
+            "tss": 34
           },
           {
             "dateKey": "2026-11-28",
@@ -4809,9 +4809,9 @@
             "timeLabel": "09:00",
             "isRestDay": false,
             "category": "SORTIE LONGUE",
-            "title": "Sortie Longue Progressive (11,9 km)",
-            "duration": "1h10",
-            "distance": "11,9 km",
+            "title": "Sortie Longue Progressive (11,6 km)",
+            "duration": "1h08",
+            "distance": "11,6 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "136–150 bpm",
@@ -4851,12 +4851,12 @@
               }
             ],
             "tags": [
-              "11,9 km",
+              "11,6 km",
               "Endurance : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 35 km).",
-            "tss": 69
+            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 34 km).",
+            "tss": 67
           },
           {
             "dateKey": "2026-11-29",
@@ -5007,9 +5007,9 @@
             "timeLabel": "18:30",
             "isRestDay": false,
             "category": "SÉANCE QUALITATIVE",
-            "title": "Séance Seuil 4 × 8 min (7,5 km)",
-            "duration": "42 min",
-            "distance": "7,5 km",
+            "title": "Séance Seuil 4 × 8 min (7,3 km)",
+            "duration": "41 min",
+            "distance": "7,3 km",
             "targetPace": "3:43/km",
             "targetZoneLabel": "Zone 3–4",
             "targetZoneBpm": "160–173 bpm",
@@ -5049,12 +5049,12 @@
               }
             ],
             "tags": [
-              "7,5 km",
+              "7,3 km",
               "Seuil : 3:43/km",
               "Zone 3/4"
             ],
             "aiAdjustmentNote": "Séance clé au seuil (3:43/km) pour repousser l'acidose lactique.",
-            "tss": 49
+            "tss": 47
           },
           {
             "dateKey": "2026-12-03",
@@ -5106,9 +5106,9 @@
             "timeLabel": "12:30",
             "isRestDay": false,
             "category": "ALLURE SPÉCIFIQUE",
-            "title": "Footing d'Affûtage & Lignes Droites (5,2 km)",
-            "duration": "30 min",
-            "distance": "5,2 km",
+            "title": "Footing d'Affûtage & Lignes Droites (5,0 km)",
+            "duration": "29 min",
+            "distance": "5,0 km",
             "targetPace": "4:03/km",
             "targetZoneLabel": "Zone 3",
             "targetZoneBpm": "150–162 bpm",
@@ -5148,12 +5148,12 @@
               }
             ],
             "tags": [
-              "5,2 km",
+              "5,0 km",
               "Allure : 4:03/km",
               "Zone 3"
             ],
             "aiAdjustmentNote": "Maintien du tonus neuro-musculaire sans entamer les réserves.",
-            "tss": 29
+            "tss": 28
           },
           {
             "dateKey": "2026-12-05",
@@ -5166,9 +5166,9 @@
             "timeLabel": "09:00",
             "isRestDay": false,
             "category": "SORTIE LONGUE",
-            "title": "Sortie Longue Progressive (9,9 km)",
-            "duration": "58 min",
-            "distance": "9,9 km",
+            "title": "Sortie Longue Progressive (9,5 km)",
+            "duration": "56 min",
+            "distance": "9,5 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "136–150 bpm",
@@ -5208,12 +5208,12 @@
               }
             ],
             "tags": [
-              "9,9 km",
+              "9,5 km",
               "Endurance : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 29 km).",
-            "tss": 57
+            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 28 km).",
+            "tss": 55
           },
           {
             "dateKey": "2026-12-06",
@@ -5364,9 +5364,9 @@
             "timeLabel": "18:30",
             "isRestDay": false,
             "category": "SÉANCE QUALITATIVE",
-            "title": "Séance Seuil 4 × 8 min (5,5 km)",
-            "duration": "31 min",
-            "distance": "5,5 km",
+            "title": "Séance Seuil 4 × 8 min (5,2 km)",
+            "duration": "29 min",
+            "distance": "5,2 km",
             "targetPace": "3:43/km",
             "targetZoneLabel": "Zone 3–4",
             "targetZoneBpm": "160–173 bpm",
@@ -5406,12 +5406,12 @@
               }
             ],
             "tags": [
-              "5,5 km",
+              "5,2 km",
               "Seuil : 3:43/km",
               "Zone 3/4"
             ],
             "aiAdjustmentNote": "Séance clé au seuil (3:43/km) pour repousser l'acidose lactique.",
-            "tss": 36
+            "tss": 34
           },
           {
             "dateKey": "2026-12-10",
@@ -5523,9 +5523,9 @@
             "timeLabel": "09:00",
             "isRestDay": false,
             "category": "SORTIE LONGUE",
-            "title": "Sortie Longue Progressive (7,1 km)",
-            "duration": "42 min",
-            "distance": "7,1 km",
+            "title": "Sortie Longue Progressive (7,0 km)",
+            "duration": "41 min",
+            "distance": "7,0 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "136–150 bpm",
@@ -5565,11 +5565,11 @@
               }
             ],
             "tags": [
-              "7,1 km",
+              "7,0 km",
               "Endurance : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 21 km).",
+            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 20 km).",
             "tss": 41
           },
           {
@@ -5674,7 +5674,7 @@
               "Allure : 5:45/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 18 km).",
+            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 16 km).",
             "tss": 21
           },
           {
@@ -5953,7 +5953,7 @@
               "Endurance : 5:45/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 18 km).",
+            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 16 km).",
             "tss": 41
           },
           {
@@ -6006,9 +6006,9 @@
             "timeLabel": "18:00",
             "isRestDay": false,
             "category": "ENDURANCE FONDAMENTALE",
-            "title": "Footing Fondamental Z2 (4,4 km)",
-            "duration": "26 min",
-            "distance": "4,4 km",
+            "title": "Footing Fondamental Z2 (4,0 km)",
+            "duration": "23 min",
+            "distance": "4,0 km",
             "targetPace": "5:45/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "134–146 bpm",
@@ -6048,12 +6048,12 @@
               }
             ],
             "tags": [
-              "4,4 km",
+              "4,0 km",
               "Allure : 5:45/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 20 km).",
-            "tss": 23
+            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 18 km).",
+            "tss": 21
           },
           {
             "dateKey": "2026-10-27",
@@ -6126,9 +6126,9 @@
             "timeLabel": "18:30",
             "isRestDay": false,
             "category": "SÉANCE QUALITATIVE",
-            "title": "Séance Seuil 2 × 8 min (5,2 km)",
-            "duration": "29 min",
-            "distance": "5,2 km",
+            "title": "Séance Seuil 2 × 8 min (5,0 km)",
+            "duration": "28 min",
+            "distance": "5,0 km",
             "targetPace": "4:52/km",
             "targetZoneLabel": "Zone 3–4",
             "targetZoneBpm": "160–173 bpm",
@@ -6168,12 +6168,12 @@
               }
             ],
             "tags": [
-              "5,2 km",
+              "5,0 km",
               "Seuil : 4:52/km",
               "Zone 3/4"
             ],
             "aiAdjustmentNote": "Séance clé au seuil (4:52/km) pour repousser l'acidose lactique.",
-            "tss": 34
+            "tss": 33
           },
           {
             "dateKey": "2026-10-29",
@@ -6331,7 +6331,7 @@
               "Endurance : 5:45/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 20 km).",
+            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 18 km).",
             "tss": 41
           },
           {
@@ -6384,9 +6384,9 @@
             "timeLabel": "18:00",
             "isRestDay": false,
             "category": "ENDURANCE FONDAMENTALE",
-            "title": "Footing Fondamental Z2 (4,8 km)",
-            "duration": "28 min",
-            "distance": "4,8 km",
+            "title": "Footing Fondamental Z2 (4,2 km)",
+            "duration": "24 min",
+            "distance": "4,2 km",
             "targetPace": "5:45/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "134–146 bpm",
@@ -6426,12 +6426,12 @@
               }
             ],
             "tags": [
-              "4,8 km",
+              "4,2 km",
               "Allure : 5:45/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 22 km).",
-            "tss": 25
+            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 19 km).",
+            "tss": 22
           },
           {
             "dateKey": "2026-11-03",
@@ -6504,9 +6504,9 @@
             "timeLabel": "18:30",
             "isRestDay": false,
             "category": "SÉANCE QUALITATIVE",
-            "title": "Séance Seuil 2 × 8 min (5,7 km)",
-            "duration": "32 min",
-            "distance": "5,7 km",
+            "title": "Séance Seuil 2 × 8 min (5,0 km)",
+            "duration": "28 min",
+            "distance": "5,0 km",
             "targetPace": "4:52/km",
             "targetZoneLabel": "Zone 3–4",
             "targetZoneBpm": "160–173 bpm",
@@ -6546,12 +6546,12 @@
               }
             ],
             "tags": [
-              "5,7 km",
+              "5,0 km",
               "Seuil : 4:52/km",
               "Zone 3/4"
             ],
             "aiAdjustmentNote": "Séance clé au seuil (4:52/km) pour repousser l'acidose lactique.",
-            "tss": 37
+            "tss": 33
           },
           {
             "dateKey": "2026-11-05",
@@ -6663,9 +6663,9 @@
             "timeLabel": "09:00",
             "isRestDay": false,
             "category": "SORTIE LONGUE",
-            "title": "Sortie Longue Progressive (7,5 km)",
-            "duration": "44 min",
-            "distance": "7,5 km",
+            "title": "Sortie Longue Progressive (7,0 km)",
+            "duration": "41 min",
+            "distance": "7,0 km",
             "targetPace": "5:45/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "136–150 bpm",
@@ -6705,12 +6705,12 @@
               }
             ],
             "tags": [
-              "7,5 km",
+              "7,0 km",
               "Endurance : 5:45/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 22 km).",
-            "tss": 44
+            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 19 km).",
+            "tss": 41
           },
           {
             "dateKey": "2026-11-08",
@@ -7146,9 +7146,9 @@
             "timeLabel": "18:00",
             "isRestDay": false,
             "category": "ENDURANCE FONDAMENTALE",
-            "title": "Footing Fondamental Z2 (6,6 km)",
-            "duration": "38 min",
-            "distance": "6,6 km",
+            "title": "Footing Fondamental Z2 (8,1 km)",
+            "duration": "47 min",
+            "distance": "8,1 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "134–146 bpm",
@@ -7188,12 +7188,12 @@
               }
             ],
             "tags": [
-              "6,6 km",
+              "8,1 km",
               "Allure : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 30 km).",
-            "tss": 34
+            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 37 km).",
+            "tss": 42
           },
           {
             "dateKey": "2026-12-22",
@@ -7344,9 +7344,9 @@
             "timeLabel": "12:30",
             "isRestDay": false,
             "category": "ALLURE SPÉCIFIQUE",
-            "title": "Footing Progressif & Allure Cible (5,4 km)",
-            "duration": "31 min",
-            "distance": "5,4 km",
+            "title": "Footing Progressif & Allure Cible (6,7 km)",
+            "duration": "38 min",
+            "distance": "6,7 km",
             "targetPace": "4:03/km",
             "targetZoneLabel": "Zone 3",
             "targetZoneBpm": "150–162 bpm",
@@ -7386,12 +7386,12 @@
               }
             ],
             "tags": [
-              "5,4 km",
+              "6,7 km",
               "Allure : 4:03/km",
               "Zone 3"
             ],
             "aiAdjustmentNote": "Travail d'économie de course à allure cible avant la sortie longue.",
-            "tss": 30
+            "tss": 37
           },
           {
             "dateKey": "2026-12-26",
@@ -7404,9 +7404,9 @@
             "timeLabel": "09:00",
             "isRestDay": false,
             "category": "SORTIE LONGUE",
-            "title": "Sortie Longue Progressive (10,2 km)",
-            "duration": "1h00",
-            "distance": "10,2 km",
+            "title": "Sortie Longue Progressive (12,6 km)",
+            "duration": "1h14",
+            "distance": "12,6 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "136–150 bpm",
@@ -7446,12 +7446,12 @@
               }
             ],
             "tags": [
-              "10,2 km",
+              "12,6 km",
               "Endurance : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 30 km).",
-            "tss": 59
+            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 37 km).",
+            "tss": 73
           },
           {
             "dateKey": "2026-12-27",
@@ -7503,9 +7503,9 @@
             "timeLabel": "18:00",
             "isRestDay": false,
             "category": "ENDURANCE FONDAMENTALE",
-            "title": "Footing Fondamental Z2 (7,3 km)",
-            "duration": "42 min",
-            "distance": "7,3 km",
+            "title": "Footing Fondamental Z2 (9,0 km)",
+            "duration": "52 min",
+            "distance": "9,0 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "134–146 bpm",
@@ -7545,12 +7545,12 @@
               }
             ],
             "tags": [
-              "7,3 km",
+              "9,0 km",
               "Allure : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 33 km).",
-            "tss": 38
+            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 41 km).",
+            "tss": 47
           },
           {
             "dateKey": "2026-12-29",
@@ -7701,9 +7701,9 @@
             "timeLabel": "12:30",
             "isRestDay": false,
             "category": "ALLURE SPÉCIFIQUE",
-            "title": "Footing Progressif & Allure Cible (6,5 km)",
-            "duration": "37 min",
-            "distance": "6,5 km",
+            "title": "Footing Progressif & Allure Cible (8,1 km)",
+            "duration": "46 min",
+            "distance": "8,1 km",
             "targetPace": "4:03/km",
             "targetZoneLabel": "Zone 3",
             "targetZoneBpm": "150–162 bpm",
@@ -7743,12 +7743,12 @@
               }
             ],
             "tags": [
-              "6,5 km",
+              "8,1 km",
               "Allure : 4:03/km",
               "Zone 3"
             ],
             "aiAdjustmentNote": "Travail d'économie de course à allure cible avant la sortie longue.",
-            "tss": 36
+            "tss": 45
           },
           {
             "dateKey": "2027-01-02",
@@ -7761,9 +7761,9 @@
             "timeLabel": "09:00",
             "isRestDay": false,
             "category": "SORTIE LONGUE",
-            "title": "Sortie Longue Progressive (12,2 km)",
-            "duration": "1h12",
-            "distance": "12,2 km",
+            "title": "Sortie Longue Progressive (15,3 km)",
+            "duration": "1h30",
+            "distance": "15,3 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "136–150 bpm",
@@ -7803,12 +7803,12 @@
               }
             ],
             "tags": [
-              "12,2 km",
+              "15,3 km",
               "Endurance : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 36 km).",
-            "tss": 71
+            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 45 km).",
+            "tss": 89
           },
           {
             "dateKey": "2027-01-03",
@@ -7860,9 +7860,9 @@
             "timeLabel": "18:00",
             "isRestDay": false,
             "category": "ENDURANCE FONDAMENTALE",
-            "title": "Footing Régénération Z2 (6,2 km)",
-            "duration": "36 min",
-            "distance": "6,2 km",
+            "title": "Footing Régénération Z2 (7,7 km)",
+            "duration": "45 min",
+            "distance": "7,7 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "134–146 bpm",
@@ -7902,12 +7902,12 @@
               }
             ],
             "tags": [
-              "6,2 km",
+              "7,7 km",
               "Allure : 4:51/km",
               "Zone 2"
             ],
             "aiAdjustmentNote": "Semaine d'assimilation : footing léger pour régénérer les fibres musculaires.",
-            "tss": 32
+            "tss": 40
           },
           {
             "dateKey": "2027-01-05",
@@ -8058,9 +8058,9 @@
             "timeLabel": "12:30",
             "isRestDay": false,
             "category": "ALLURE SPÉCIFIQUE",
-            "title": "Footing Progressif & Allure Cible (5,0 km)",
-            "duration": "29 min",
-            "distance": "5,0 km",
+            "title": "Footing Progressif & Allure Cible (6,3 km)",
+            "duration": "36 min",
+            "distance": "6,3 km",
             "targetPace": "4:03/km",
             "targetZoneLabel": "Zone 3",
             "targetZoneBpm": "150–162 bpm",
@@ -8100,12 +8100,12 @@
               }
             ],
             "tags": [
-              "5,0 km",
+              "6,3 km",
               "Allure : 4:03/km",
               "Zone 3"
             ],
             "aiAdjustmentNote": "Travail d'économie de course à allure cible avant la sortie longue.",
-            "tss": 28
+            "tss": 35
           },
           {
             "dateKey": "2027-01-09",
@@ -8118,9 +8118,9 @@
             "timeLabel": "09:00",
             "isRestDay": false,
             "category": "SORTIE LONGUE",
-            "title": "Sortie Longue d'Assimilation (9,5 km)",
-            "duration": "56 min",
-            "distance": "9,5 km",
+            "title": "Sortie Longue d'Assimilation (11,9 km)",
+            "duration": "1h10",
+            "distance": "11,9 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "136–150 bpm",
@@ -8160,12 +8160,12 @@
               }
             ],
             "tags": [
-              "9,5 km",
+              "11,9 km",
               "Endurance : 4:51/km",
               "Zone 2"
             ],
             "aiAdjustmentNote": "Volume réduit de ~22 % : assimilation physiologique et surcompensation.",
-            "tss": 55
+            "tss": 69
           },
           {
             "dateKey": "2027-01-10",
@@ -8217,9 +8217,9 @@
             "timeLabel": "18:00",
             "isRestDay": false,
             "category": "ENDURANCE FONDAMENTALE",
-            "title": "Footing Fondamental Z2 (7,7 km)",
-            "duration": "45 min",
-            "distance": "7,7 km",
+            "title": "Footing Fondamental Z2 (9,0 km)",
+            "duration": "52 min",
+            "distance": "9,0 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "134–146 bpm",
@@ -8259,12 +8259,12 @@
               }
             ],
             "tags": [
-              "7,7 km",
+              "9,0 km",
               "Allure : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 35 km).",
-            "tss": 40
+            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 41 km).",
+            "tss": 47
           },
           {
             "dateKey": "2027-01-12",
@@ -8415,9 +8415,9 @@
             "timeLabel": "12:30",
             "isRestDay": false,
             "category": "ALLURE SPÉCIFIQUE",
-            "title": "Footing Progressif & Allure Cible (6,3 km)",
-            "duration": "36 min",
-            "distance": "6,3 km",
+            "title": "Footing Progressif & Allure Cible (7,4 km)",
+            "duration": "42 min",
+            "distance": "7,4 km",
             "targetPace": "4:03/km",
             "targetZoneLabel": "Zone 3",
             "targetZoneBpm": "150–162 bpm",
@@ -8457,12 +8457,12 @@
               }
             ],
             "tags": [
-              "6,3 km",
+              "7,4 km",
               "Allure : 4:03/km",
               "Zone 3"
             ],
             "aiAdjustmentNote": "Travail d'économie de course à allure cible avant la sortie longue.",
-            "tss": 35
+            "tss": 41
           },
           {
             "dateKey": "2027-01-16",
@@ -8475,9 +8475,9 @@
             "timeLabel": "09:00",
             "isRestDay": false,
             "category": "SORTIE LONGUE",
-            "title": "Sortie Longue Progressive (11,9 km)",
-            "duration": "1h10",
-            "distance": "11,9 km",
+            "title": "Sortie Longue Progressive (13,9 km)",
+            "duration": "1h22",
+            "distance": "13,9 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "136–150 bpm",
@@ -8517,12 +8517,12 @@
               }
             ],
             "tags": [
-              "11,9 km",
+              "13,9 km",
               "Endurance : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 35 km).",
-            "tss": 69
+            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 41 km).",
+            "tss": 81
           },
           {
             "dateKey": "2027-01-17",
@@ -8574,9 +8574,9 @@
             "timeLabel": "18:00",
             "isRestDay": false,
             "category": "ENDURANCE FONDAMENTALE",
-            "title": "Footing Fondamental Z2 (8,4 km)",
-            "duration": "49 min",
-            "distance": "8,4 km",
+            "title": "Footing Fondamental Z2 (9,9 km)",
+            "duration": "57 min",
+            "distance": "9,9 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "134–146 bpm",
@@ -8616,12 +8616,12 @@
               }
             ],
             "tags": [
-              "8,4 km",
+              "9,9 km",
               "Allure : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 38 km).",
-            "tss": 44
+            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 45 km).",
+            "tss": 51
           },
           {
             "dateKey": "2027-01-19",
@@ -8772,9 +8772,9 @@
             "timeLabel": "12:30",
             "isRestDay": false,
             "category": "ALLURE SPÉCIFIQUE",
-            "title": "Footing Progressif & Allure Cible (6,8 km)",
-            "duration": "39 min",
-            "distance": "6,8 km",
+            "title": "Footing Progressif & Allure Cible (8,1 km)",
+            "duration": "46 min",
+            "distance": "8,1 km",
             "targetPace": "4:03/km",
             "targetZoneLabel": "Zone 3",
             "targetZoneBpm": "150–162 bpm",
@@ -8814,12 +8814,12 @@
               }
             ],
             "tags": [
-              "6,8 km",
+              "8,1 km",
               "Allure : 4:03/km",
               "Zone 3"
             ],
             "aiAdjustmentNote": "Travail d'économie de course à allure cible avant la sortie longue.",
-            "tss": 37
+            "tss": 45
           },
           {
             "dateKey": "2027-01-23",
@@ -8832,9 +8832,9 @@
             "timeLabel": "09:00",
             "isRestDay": false,
             "category": "SORTIE LONGUE",
-            "title": "Sortie Longue Progressive (12,9 km)",
-            "duration": "1h16",
-            "distance": "12,9 km",
+            "title": "Sortie Longue Progressive (15,3 km)",
+            "duration": "1h30",
+            "distance": "15,3 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "136–150 bpm",
@@ -8874,12 +8874,12 @@
               }
             ],
             "tags": [
-              "12,9 km",
+              "15,3 km",
               "Endurance : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 38 km).",
-            "tss": 75
+            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 45 km).",
+            "tss": 89
           },
           {
             "dateKey": "2027-01-24",
@@ -8931,9 +8931,9 @@
             "timeLabel": "18:00",
             "isRestDay": false,
             "category": "ENDURANCE FONDAMENTALE",
-            "title": "Footing Fondamental Z2 (9,2 km)",
-            "duration": "53 min",
-            "distance": "9,2 km",
+            "title": "Footing Fondamental Z2 (10,8 km)",
+            "duration": "63 min",
+            "distance": "10,8 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "134–146 bpm",
@@ -8973,12 +8973,12 @@
               }
             ],
             "tags": [
-              "9,2 km",
+              "10,8 km",
               "Allure : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 42 km).",
-            "tss": 48
+            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 49 km).",
+            "tss": 56
           },
           {
             "dateKey": "2027-01-26",
@@ -9129,9 +9129,9 @@
             "timeLabel": "12:30",
             "isRestDay": false,
             "category": "ALLURE SPÉCIFIQUE",
-            "title": "Footing Progressif & Allure Cible (7,6 km)",
-            "duration": "43 min",
-            "distance": "7,6 km",
+            "title": "Footing Progressif & Allure Cible (8,8 km)",
+            "duration": "50 min",
+            "distance": "8,8 km",
             "targetPace": "4:03/km",
             "targetZoneLabel": "Zone 3",
             "targetZoneBpm": "150–162 bpm",
@@ -9171,12 +9171,12 @@
               }
             ],
             "tags": [
-              "7,6 km",
+              "8,8 km",
               "Allure : 4:03/km",
               "Zone 3"
             ],
             "aiAdjustmentNote": "Travail d'économie de course à allure cible avant la sortie longue.",
-            "tss": 42
+            "tss": 48
           },
           {
             "dateKey": "2027-01-30",
@@ -9189,9 +9189,9 @@
             "timeLabel": "09:00",
             "isRestDay": false,
             "category": "SORTIE LONGUE",
-            "title": "Sortie Longue Progressive (14,3 km)",
-            "duration": "1h24",
-            "distance": "14,3 km",
+            "title": "Sortie Longue Progressive (16,7 km)",
+            "duration": "1h39",
+            "distance": "16,7 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "136–150 bpm",
@@ -9231,12 +9231,12 @@
               }
             ],
             "tags": [
-              "14,3 km",
+              "16,7 km",
               "Endurance : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 42 km).",
-            "tss": 83
+            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 49 km).",
+            "tss": 97
           },
           {
             "dateKey": "2027-01-31",
@@ -9288,9 +9288,9 @@
             "timeLabel": "18:00",
             "isRestDay": false,
             "category": "ENDURANCE FONDAMENTALE",
-            "title": "Footing Régénération Z2 (7,3 km)",
-            "duration": "42 min",
-            "distance": "7,3 km",
+            "title": "Footing Régénération Z2 (8,4 km)",
+            "duration": "49 min",
+            "distance": "8,4 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "134–146 bpm",
@@ -9330,12 +9330,12 @@
               }
             ],
             "tags": [
-              "7,3 km",
+              "8,4 km",
               "Allure : 4:51/km",
               "Zone 2"
             ],
             "aiAdjustmentNote": "Semaine d'assimilation : footing léger pour régénérer les fibres musculaires.",
-            "tss": 38
+            "tss": 44
           },
           {
             "dateKey": "2027-02-02",
@@ -9486,9 +9486,9 @@
             "timeLabel": "12:30",
             "isRestDay": false,
             "category": "ALLURE SPÉCIFIQUE",
-            "title": "Footing Progressif & Allure Cible (5,9 km)",
-            "duration": "34 min",
-            "distance": "5,9 km",
+            "title": "Footing Progressif & Allure Cible (6,8 km)",
+            "duration": "39 min",
+            "distance": "6,8 km",
             "targetPace": "4:03/km",
             "targetZoneLabel": "Zone 3",
             "targetZoneBpm": "150–162 bpm",
@@ -9528,12 +9528,12 @@
               }
             ],
             "tags": [
-              "5,9 km",
+              "6,8 km",
               "Allure : 4:03/km",
               "Zone 3"
             ],
             "aiAdjustmentNote": "Travail d'économie de course à allure cible avant la sortie longue.",
-            "tss": 32
+            "tss": 37
           },
           {
             "dateKey": "2027-02-06",
@@ -9546,9 +9546,9 @@
             "timeLabel": "09:00",
             "isRestDay": false,
             "category": "SORTIE LONGUE",
-            "title": "Sortie Longue d'Assimilation (11,2 km)",
-            "duration": "1h06",
-            "distance": "11,2 km",
+            "title": "Sortie Longue d'Assimilation (12,9 km)",
+            "duration": "1h16",
+            "distance": "12,9 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "136–150 bpm",
@@ -9588,12 +9588,12 @@
               }
             ],
             "tags": [
-              "11,2 km",
+              "12,9 km",
               "Endurance : 4:51/km",
               "Zone 2"
             ],
             "aiAdjustmentNote": "Volume réduit de ~22 % : assimilation physiologique et surcompensation.",
-            "tss": 65
+            "tss": 75
           },
           {
             "dateKey": "2027-02-07",
@@ -9645,9 +9645,9 @@
             "timeLabel": "18:00",
             "isRestDay": false,
             "category": "ENDURANCE FONDAMENTALE",
-            "title": "Footing Fondamental Z2 (8,8 km)",
-            "duration": "51 min",
-            "distance": "8,8 km",
+            "title": "Footing Fondamental Z2 (9,9 km)",
+            "duration": "57 min",
+            "distance": "9,9 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "134–146 bpm",
@@ -9687,12 +9687,12 @@
               }
             ],
             "tags": [
-              "8,8 km",
+              "9,9 km",
               "Allure : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 40 km).",
-            "tss": 46
+            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 45 km).",
+            "tss": 51
           },
           {
             "dateKey": "2027-02-09",
@@ -9843,9 +9843,9 @@
             "timeLabel": "12:30",
             "isRestDay": false,
             "category": "ALLURE SPÉCIFIQUE",
-            "title": "Footing Progressif & Allure Cible (7,2 km)",
-            "duration": "41 min",
-            "distance": "7,2 km",
+            "title": "Footing Progressif & Allure Cible (8,1 km)",
+            "duration": "46 min",
+            "distance": "8,1 km",
             "targetPace": "4:03/km",
             "targetZoneLabel": "Zone 3",
             "targetZoneBpm": "150–162 bpm",
@@ -9885,12 +9885,12 @@
               }
             ],
             "tags": [
-              "7,2 km",
+              "8,1 km",
               "Allure : 4:03/km",
               "Zone 3"
             ],
             "aiAdjustmentNote": "Travail d'économie de course à allure cible avant la sortie longue.",
-            "tss": 40
+            "tss": 45
           },
           {
             "dateKey": "2027-02-13",
@@ -9903,9 +9903,9 @@
             "timeLabel": "09:00",
             "isRestDay": false,
             "category": "SORTIE LONGUE",
-            "title": "Sortie Longue Progressive (13,6 km)",
-            "duration": "1h20",
-            "distance": "13,6 km",
+            "title": "Sortie Longue Progressive (15,3 km)",
+            "duration": "1h30",
+            "distance": "15,3 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "136–150 bpm",
@@ -9945,12 +9945,12 @@
               }
             ],
             "tags": [
-              "13,6 km",
+              "15,3 km",
               "Endurance : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 40 km).",
-            "tss": 79
+            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 45 km).",
+            "tss": 89
           },
           {
             "dateKey": "2027-02-14",
@@ -10002,9 +10002,9 @@
             "timeLabel": "18:00",
             "isRestDay": false,
             "category": "ENDURANCE FONDAMENTALE",
-            "title": "Footing Fondamental Z2 (9,7 km)",
-            "duration": "56 min",
-            "distance": "9,7 km",
+            "title": "Footing Fondamental Z2 (10,8 km)",
+            "duration": "63 min",
+            "distance": "10,8 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "134–146 bpm",
@@ -10044,12 +10044,12 @@
               }
             ],
             "tags": [
-              "9,7 km",
+              "10,8 km",
               "Allure : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 44 km).",
-            "tss": 50
+            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 49 km).",
+            "tss": 56
           },
           {
             "dateKey": "2027-02-16",
@@ -10200,9 +10200,9 @@
             "timeLabel": "12:30",
             "isRestDay": false,
             "category": "ALLURE SPÉCIFIQUE",
-            "title": "Footing Progressif & Allure Cible (7,9 km)",
-            "duration": "45 min",
-            "distance": "7,9 km",
+            "title": "Footing Progressif & Allure Cible (8,8 km)",
+            "duration": "50 min",
+            "distance": "8,8 km",
             "targetPace": "4:03/km",
             "targetZoneLabel": "Zone 3",
             "targetZoneBpm": "150–162 bpm",
@@ -10242,12 +10242,12 @@
               }
             ],
             "tags": [
-              "7,9 km",
+              "8,8 km",
               "Allure : 4:03/km",
               "Zone 3"
             ],
             "aiAdjustmentNote": "Travail d'économie de course à allure cible avant la sortie longue.",
-            "tss": 43
+            "tss": 48
           },
           {
             "dateKey": "2027-02-20",
@@ -10260,9 +10260,9 @@
             "timeLabel": "09:00",
             "isRestDay": false,
             "category": "SORTIE LONGUE",
-            "title": "Sortie Longue Progressive (15,0 km)",
-            "duration": "1h29",
-            "distance": "15,0 km",
+            "title": "Sortie Longue Progressive (16,7 km)",
+            "duration": "1h39",
+            "distance": "16,7 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "136–150 bpm",
@@ -10302,12 +10302,12 @@
               }
             ],
             "tags": [
-              "15,0 km",
+              "16,7 km",
               "Endurance : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 44 km).",
-            "tss": 87
+            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 49 km).",
+            "tss": 97
           },
           {
             "dateKey": "2027-02-21",
@@ -10359,9 +10359,9 @@
             "timeLabel": "18:00",
             "isRestDay": false,
             "category": "ENDURANCE FONDAMENTALE",
-            "title": "Footing Fondamental Z2 (10,6 km)",
-            "duration": "61 min",
-            "distance": "10,6 km",
+            "title": "Footing Fondamental Z2 (11,9 km)",
+            "duration": "69 min",
+            "distance": "11,9 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "134–146 bpm",
@@ -10401,12 +10401,12 @@
               }
             ],
             "tags": [
-              "10,6 km",
+              "11,9 km",
               "Allure : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 48 km).",
-            "tss": 55
+            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 54 km).",
+            "tss": 62
           },
           {
             "dateKey": "2027-02-23",
@@ -10557,9 +10557,9 @@
             "timeLabel": "12:30",
             "isRestDay": false,
             "category": "ALLURE SPÉCIFIQUE",
-            "title": "Footing Progressif & Allure Cible (8,6 km)",
-            "duration": "49 min",
-            "distance": "8,6 km",
+            "title": "Footing Progressif & Allure Cible (9,7 km)",
+            "duration": "55 min",
+            "distance": "9,7 km",
             "targetPace": "4:03/km",
             "targetZoneLabel": "Zone 3",
             "targetZoneBpm": "150–162 bpm",
@@ -10599,12 +10599,12 @@
               }
             ],
             "tags": [
-              "8,6 km",
+              "9,7 km",
               "Allure : 4:03/km",
               "Zone 3"
             ],
             "aiAdjustmentNote": "Travail d'économie de course à allure cible avant la sortie longue.",
-            "tss": 47
+            "tss": 53
           },
           {
             "dateKey": "2027-02-27",
@@ -10617,9 +10617,9 @@
             "timeLabel": "09:00",
             "isRestDay": false,
             "category": "SORTIE LONGUE",
-            "title": "Sortie Longue Progressive (16,3 km)",
-            "duration": "1h36",
-            "distance": "16,3 km",
+            "title": "Sortie Longue Progressive (18,4 km)",
+            "duration": "1h49",
+            "distance": "18,4 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "136–150 bpm",
@@ -10659,12 +10659,12 @@
               }
             ],
             "tags": [
-              "16,3 km",
+              "18,4 km",
               "Endurance : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 48 km).",
-            "tss": 95
+            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 54 km).",
+            "tss": 107
           },
           {
             "dateKey": "2027-02-28",
@@ -10716,9 +10716,9 @@
             "timeLabel": "18:00",
             "isRestDay": false,
             "category": "ENDURANCE FONDAMENTALE",
-            "title": "Footing Fondamental Z2 (7,9 km)",
-            "duration": "46 min",
-            "distance": "7,9 km",
+            "title": "Footing Fondamental Z2 (9,0 km)",
+            "duration": "52 min",
+            "distance": "9,0 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "134–146 bpm",
@@ -10758,12 +10758,12 @@
               }
             ],
             "tags": [
-              "7,9 km",
+              "9,0 km",
               "Allure : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 36 km).",
-            "tss": 41
+            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 41 km).",
+            "tss": 47
           },
           {
             "dateKey": "2027-03-02",
@@ -10914,9 +10914,9 @@
             "timeLabel": "12:30",
             "isRestDay": false,
             "category": "ALLURE SPÉCIFIQUE",
-            "title": "Footing d'Affûtage & Lignes Droites (6,5 km)",
-            "duration": "37 min",
-            "distance": "6,5 km",
+            "title": "Footing d'Affûtage & Lignes Droites (7,4 km)",
+            "duration": "42 min",
+            "distance": "7,4 km",
             "targetPace": "4:03/km",
             "targetZoneLabel": "Zone 3",
             "targetZoneBpm": "150–162 bpm",
@@ -10956,12 +10956,12 @@
               }
             ],
             "tags": [
-              "6,5 km",
+              "7,4 km",
               "Allure : 4:03/km",
               "Zone 3"
             ],
             "aiAdjustmentNote": "Maintien du tonus neuro-musculaire sans entamer les réserves.",
-            "tss": 36
+            "tss": 41
           },
           {
             "dateKey": "2027-03-06",
@@ -10974,9 +10974,9 @@
             "timeLabel": "09:00",
             "isRestDay": false,
             "category": "SORTIE LONGUE",
-            "title": "Sortie Longue Progressive (12,2 km)",
-            "duration": "1h12",
-            "distance": "12,2 km",
+            "title": "Sortie Longue Progressive (13,9 km)",
+            "duration": "1h22",
+            "distance": "13,9 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "136–150 bpm",
@@ -11016,12 +11016,12 @@
               }
             ],
             "tags": [
-              "12,2 km",
+              "13,9 km",
               "Endurance : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 36 km).",
-            "tss": 71
+            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 41 km).",
+            "tss": 81
           },
           {
             "dateKey": "2027-03-07",
@@ -11073,9 +11073,9 @@
             "timeLabel": "18:00",
             "isRestDay": false,
             "category": "ENDURANCE FONDAMENTALE",
-            "title": "Footing Fondamental Z2 (5,7 km)",
-            "duration": "33 min",
-            "distance": "5,7 km",
+            "title": "Footing Fondamental Z2 (6,6 km)",
+            "duration": "38 min",
+            "distance": "6,6 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "134–146 bpm",
@@ -11115,12 +11115,12 @@
               }
             ],
             "tags": [
-              "5,7 km",
+              "6,6 km",
               "Allure : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 26 km).",
-            "tss": 30
+            "aiAdjustmentNote": "Séance aérobie calibrée sur ton socle (volume hebdo visé : 30 km).",
+            "tss": 34
           },
           {
             "dateKey": "2027-03-09",
@@ -11271,9 +11271,9 @@
             "timeLabel": "12:30",
             "isRestDay": false,
             "category": "ALLURE SPÉCIFIQUE",
-            "title": "Footing d'Affûtage & Lignes Droites (4,7 km)",
-            "duration": "27 min",
-            "distance": "4,7 km",
+            "title": "Footing d'Affûtage & Lignes Droites (5,4 km)",
+            "duration": "31 min",
+            "distance": "5,4 km",
             "targetPace": "4:03/km",
             "targetZoneLabel": "Zone 3",
             "targetZoneBpm": "150–162 bpm",
@@ -11313,12 +11313,12 @@
               }
             ],
             "tags": [
-              "4,7 km",
+              "5,4 km",
               "Allure : 4:03/km",
               "Zone 3"
             ],
             "aiAdjustmentNote": "Maintien du tonus neuro-musculaire sans entamer les réserves.",
-            "tss": 26
+            "tss": 30
           },
           {
             "dateKey": "2027-03-13",
@@ -11331,9 +11331,9 @@
             "timeLabel": "09:00",
             "isRestDay": false,
             "category": "SORTIE LONGUE",
-            "title": "Sortie Longue Progressive (8,8 km)",
-            "duration": "52 min",
-            "distance": "8,8 km",
+            "title": "Sortie Longue Progressive (10,2 km)",
+            "duration": "1h00",
+            "distance": "10,2 km",
             "targetPace": "4:51/km",
             "targetZoneLabel": "Zone 2",
             "targetZoneBpm": "136–150 bpm",
@@ -11373,12 +11373,12 @@
               }
             ],
             "tags": [
-              "8,8 km",
+              "10,2 km",
               "Endurance : 4:51/km",
               "Zone 2"
             ],
-            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 26 km).",
-            "tss": 51
+            "aiAdjustmentNote": "Sortie pilier du week-end (+10 % hebdo respecté, volume cible : 30 km).",
+            "tss": 59
           },
           {
             "dateKey": "2027-03-14",
@@ -11472,19 +11472,19 @@
         "phaseLabel": "Assimilation (Deload -22 %)"
       },
       {
-        "targetKm": 28,
+        "targetKm": 26,
         "isDeload": false,
         "isTaper": false,
         "phaseLabel": "Développement Seuil"
       },
       {
-        "targetKm": 30,
+        "targetKm": 29,
         "isDeload": false,
         "isTaper": false,
         "phaseLabel": "Montée de Charge (+10 %)"
       },
       {
-        "targetKm": 25,
+        "targetKm": 24,
         "isDeload": false,
         "isTaper": true,
         "phaseLabel": "Affûtage"
@@ -11520,63 +11520,63 @@
         "phaseLabel": "Assimilation (Deload -22 %)"
       },
       {
-        "targetKm": 28,
+        "targetKm": 26,
         "isDeload": false,
         "isTaper": false,
         "phaseLabel": "Développement Seuil"
       },
       {
-        "targetKm": 30,
+        "targetKm": 29,
         "isDeload": false,
         "isTaper": false,
         "phaseLabel": "Montée de Charge (+10 %)"
-      },
-      {
-        "targetKm": 33,
-        "isDeload": false,
-        "isTaper": false,
-        "phaseLabel": "Pic de Bloc (+10 %)"
-      },
-      {
-        "targetKm": 26,
-        "isDeload": true,
-        "isTaper": false,
-        "phaseLabel": "Assimilation (Deload -22 %)"
       },
       {
         "targetKm": 32,
         "isDeload": false,
         "isTaper": false,
+        "phaseLabel": "Pic de Bloc (+10 %)"
+      },
+      {
+        "targetKm": 25,
+        "isDeload": true,
+        "isTaper": false,
+        "phaseLabel": "Assimilation (Deload -22 %)"
+      },
+      {
+        "targetKm": 29,
+        "isDeload": false,
+        "isTaper": false,
         "phaseLabel": "Développement Seuil"
       },
       {
-        "targetKm": 35,
+        "targetKm": 32,
         "isDeload": false,
         "isTaper": false,
         "phaseLabel": "Montée de Charge (+10 %)"
       },
       {
-        "targetKm": 29,
+        "targetKm": 26,
         "isDeload": false,
         "isTaper": true,
         "phaseLabel": "Affûtage"
       },
       {
-        "targetKm": 21,
+        "targetKm": 19,
         "isDeload": false,
         "isTaper": true,
         "phaseLabel": "Affûtage"
       }
     ],
     "startWeeklyKm": [
-      18,
-      18,
-      18,
+      21,
+      8,
+      16,
       21,
       25,
       29,
-      30,
-      30
+      33,
+      49
     ]
   }
 }

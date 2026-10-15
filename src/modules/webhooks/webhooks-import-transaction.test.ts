@@ -1,4 +1,9 @@
 import { WebhooksService } from "./webhooks.service";
+import {
+  buildDailyTssSeries,
+  computeReadinessScore,
+  replayBanisterDaily,
+} from "../../training-science";
 
 /**
  * RILES-031 — les imports Strava sont atomiques par lot.
@@ -167,6 +172,11 @@ function createAtomicPrisma(state: FakeState) {
       },
     },
     user: {
+      findUnique: async ({ where, select }: any) => {
+        if (state.user.id !== where.id) return null;
+        if (select) return pick(state.user, select);
+        return { ...state.user };
+      },
       update: async ({ where, data }: any) => {
         track("user.update");
         if (state.user.id !== where.id) throw new Error("user introuvable");
@@ -233,6 +243,15 @@ function createService(state: FakeState) {
       tsbForm: Number((ctl - atl).toFixed(1)),
       readinessScore: 84,
     })),
+    // RILES-020 : rejeu EWMA par jour civil — on réutilise l'implémentation
+    // pure pour que le test exerce le vrai calcul.
+    buildDailyTssSeries: jest.fn((entries: Array<{ dateKey: string; tss: number }>) =>
+      buildDailyTssSeries(entries),
+    ),
+    replayBanisterDaily: jest.fn((days: number[]) => replayBanisterDaily(days)),
+    computeReadinessScore: jest.fn((tsb: number, sleep?: number, hrv?: string) =>
+      computeReadinessScore(tsb, sleep, hrv),
+    ),
     computePacesFromRecentPerformance: jest.fn(() => ({
       easyPaceZ2: "5:30/km",
       thresholdPaceZ4: "4:45/km",

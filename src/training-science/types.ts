@@ -51,7 +51,16 @@ export interface SessionTssInput {
   durationSec: number;
   distanceKm?: number;
   avgHeartRate?: number;
+  /** Session-observed max HR. Kept for context only — it is NOT the
+   * athlete's physiological HRmax (RILES-021). */
   maxHeartRate?: number;
+  /** The athlete's own max heart rate (User.hrMax). When absent, the
+   * documented default estimate is used. */
+  hrMax?: number;
+  /** RPE rating 1–10 of the session (sRPE path, RILES-027). */
+  rpe?: number;
+  /** Pre-computed session-RPE load (rating × durationMin, RILES-027). */
+  srpe?: number;
 }
 
 /** Object form of updateBanisterLoad. */
@@ -69,6 +78,18 @@ export interface BanisterLoadResult {
   ctlFitness: number;
   tsbForm: number;
   readinessScore: number;
+}
+
+/** Output of a daily Banister replay (RILES-020): how many calendar days
+ * were stepped, in addition to the final physiological state. */
+export interface BanisterReplayResult extends BanisterLoadResult {
+  steps: number;
+}
+
+/** One day's total training load (sum of session TSS) for the daily replay. */
+export interface DailyTssEntry {
+  dateKey: string; // "YYYY-MM-DD"
+  tss: number;
 }
 
 /** Life rule entry used to lock training days. */

@@ -320,10 +320,31 @@ describe("computePeriodizedWeekMetrics / deriveStartWeeklyKm (ramp rules)", () =
     expect(computePeriodizedWeekMetrics(2, 4, 24).isTaper).toBe(false);
   });
 
-  it("caps the start volume between 18 and 30 km/sem", () => {
-    expect(deriveStartWeeklyKm(0)).toBe(18);
-    expect(deriveStartWeeklyKm(25)).toBe(21);
-    expect(deriveStartWeeklyKm(60)).toBe(30);
+  it("scales the start volume to the athlete (RILES-024, no absolute clamp)", () => {
+    // Défaut documenté pour un athlète sans historique
+    expect(deriveStartWeeklyKm(0)).toBe(21);
+    // Débutant à 20 km/sem : démarre à ~16 km, pas plafonné à 18
+    expect(deriveStartWeeklyKm(20)).toBe(16);
+    // Coureur confirmé à 60 km/sem : démarre à ~49 km, pas plafonné à 30
+    expect(deriveStartWeeklyKm(60)).toBe(49);
+  });
+
+  it("grows cycle peaks by at most +10 % and never regresses without a deload (RILES-023/024)", () => {
+    const peaks: number[] = [];
+    for (let cycle = 0; cycle < 3; cycle++) {
+      const weekInCycle = 2; // semaine de pic du bloc
+      const m = computePeriodizedWeekMetrics(cycle * 4 + weekInCycle, 16, 30);
+      peaks.push(m.targetKm);
+    }
+    for (let i = 1; i < peaks.length; i++) {
+      expect(peaks[i]).toBeLessThanOrEqual(Math.round(peaks[i - 1] * 1.1) + 1);
+    }
+    // Le socle du bloc suivant est sous le pic précédent (assimilation
+    // planifiée), mais le pic suivant le dépasse : pas de régression de
+    // programme.
+    const nextBase = computePeriodizedWeekMetrics(12, 16, 30);
+    expect(nextBase.targetKm).toBeLessThan(peaks[2]);
+    expect(nextBase.targetKm).toBeGreaterThan(peaks[0]);
   });
 });
 
