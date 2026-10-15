@@ -248,25 +248,29 @@ export class WorkoutsService {
     dto: RpeCheckInRequestDto,
   ): Promise<RpeCheckInResponseDto> {
     let feedbackLabel = "Modéré";
+    // RILES-025 / RILES-018 — Ces messages ne doivent PRÉTENDRE aucun
+    // changement de plan (aucun repos inséré, aucun volume allégé n'est
+    // écrit ici) : ils décrivent uniquement l'évaluation de l'effort et,
+    // le cas échéant, une suggestion clairement formulée comme telle.
     let aiPreservationMessage =
-      "L'IA a calibré ta charge pour préserver tes mollets aujourd'hui.";
+      "Évaluation de ton ressenti enregistrée sur cette séance. Aucun changement de plan n'est appliqué automatiquement.";
 
     if (dto.rating <= 3) {
       feedbackLabel = "Très facile";
       aiPreservationMessage =
-        "Parfait ! Ton niveau de forme est excellent, nous maintenons les allures cibles.";
+        "Effort très facile : ta fraîcheur est bonne. Si tu le souhaites, on peut en discuter pour augmenter légèrement le volume de la prochaine séance (plafonné à +10 %).";
     } else if (dto.rating <= 6) {
       feedbackLabel = "Modéré";
       aiPreservationMessage =
-        "L'IA a ajusté le seuil pour préserver tes mollets aujourd'hui.";
+        "Effort modéré, cohérent avec l'intention de la séance. Rien à ajuster dans ton plan sur cette base.";
     } else if (dto.rating <= 8) {
       feedbackLabel = "Difficile";
       aiPreservationMessage =
-        "Séance intense détectée. L'IA a allégé le volume de demain pour optimiser ta récupération.";
+        "Effort difficile : prévois une récupération attentive. Suggestion : si la fatigue persiste, allège la prochaine séance.";
     } else {
       feedbackLabel = "À fond";
       aiPreservationMessage =
-        "Charge maximale atteinte. Un jour de repos actif a été automatiquement inséré.";
+        "Effort très intense : un vrai repos est recommandé avant la prochaine séance. Suggestion : garde la prochaine séance très légère.";
     }
 
     const checkIn = await this.prisma.rpeCheckIn.create({
@@ -344,40 +348,44 @@ export class WorkoutsService {
       throw new NotFoundException(`Workout ${identifier} not found`);
     }
 
+    // RILES-018 — Ces adaptations sont des règles déterministes appliquées
+    // à la demande de l'utilisateur : aucune n'est générée par une IA, les
+    // libellés et notes ne revendiquent donc plus d'« IA » et décrivent
+    // exactement la modification réellement écrite en base.
     let updates: any = {};
 
     switch (dto.adaptationType) {
       case "lighten":
         updates = {
-          title: "Footing Léger & Lignes Droites (Adapté IA)",
+          title: "Footing Léger & Lignes Droites (Adapté)",
           duration: "35 min",
           distance: "6,0 km",
           targetPace: "5:30/km",
           targetZoneLabel: "Zone 2",
           targetZoneBpm: "135–148 bpm",
           aiAdjustmentNote:
-            "Séance allégée : volume réduit de 40% pour compenser la fatigue.",
+            "Séance allégée à ta demande : 35 min en Zone 2 (allure 5:30/km).",
           tags: ["6,0 km", "Allure : 5:30/km", "Zone 2"],
         };
         break;
 
       case "easy_run":
         updates = {
-          title: "30 min Footing Souple Régénérant (Adapté IA)",
+          title: "30 min Footing Souple Régénérant (Adapté)",
           duration: "30 min",
           distance: "5,0 km",
           targetPace: "6:00/km",
           targetZoneLabel: "Zone 1–2",
           targetZoneBpm: "125–138 bpm",
           aiAdjustmentNote:
-            "Remplacement validé : footing souple pour favoriser l’oxygénation.",
+            "Remplacement à ta demande : 30 min de footing souple en Zone 1–2.",
           tags: ["5,0 km", "Endurance fondamentale", "Zone 1/2"],
         };
         break;
 
       case "postpone":
         updates = {
-          title: "Repos / Récupération (Décalé à demain)",
+          title: "Repos / Récupération (Adapté)",
           isRestDay: true,
           status: WorkoutStatus.REST,
           duration: "—",
@@ -385,20 +393,20 @@ export class WorkoutsService {
           targetZoneLabel: "Zone 1",
           targetZoneBpm: "< 110 bpm",
           aiAdjustmentNote:
-            "Séance clé décalée au lendemain pour respecter tes disponibilités.",
+            "Journée remplacée par un jour de repos à ta demande (la séance n'est pas reportée automatiquement).",
           tags: ["Repos actif", "Hydratation"],
         };
         break;
 
       case "injury_care":
         updates = {
-          title: "Mobilité douce & Glaçage Mollet (Adapté IA)",
+          title: "Mobilité douce & Glaçage Mollet (Adapté)",
           duration: "20 min",
           distance: "0 km",
           targetZoneLabel: "Zone 1",
           targetZoneBpm: "< 115 bpm",
           aiAdjustmentNote:
-            "Course suspendue 24h pour prévenir toute contracture du mollet.",
+            "Séance remplacée par 20 min de mobilité douce à ta demande.",
           tags: ["Mobilité", "Prévention blessure"],
         };
         break;
@@ -565,7 +573,8 @@ export class WorkoutsService {
         selectedSports: user?.selectedSports || ["running"],
       },
       physiologicalState: {
-        readinessScore: user?.readinessScore ?? 80,
+        // RILES-029 : pas de default fabriqué — 80 n'était pas une mesure.
+        readinessScore: user?.readinessScore,
         totalKm: sixMonthsSummary?.totalDistanceKm ?? user?.totalKm ?? 0,
         activeWeeks: sixMonthsSummary?.activeWeeks ?? user?.activeWeeks ?? 0,
         recentWeeklyKm,

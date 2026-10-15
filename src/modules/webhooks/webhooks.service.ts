@@ -1319,9 +1319,11 @@ export class WebhooksService {
       user &&
       (executed.actualDistanceKm > 0 || executed.actualDurationSec > 0)
     ) {
+      // RILES-029 : pas de valeurs initiales fabriquées (45/50) — l'état
+      // Banister initial est l'état réel en base (0 = aucune donnée).
       const banister = this.llmService.updateBanisterLoad({
-        previousAtl: user.atlFatigue ?? 45,
-        previousCtl: user.ctlFitness ?? 50,
+        previousAtl: user.atlFatigue,
+        previousCtl: user.ctlFitness,
         todayTss: sessionTss,
         sleepScore: user.sleepScore ?? undefined,
         hrvStatus: user.hrvStatus ?? undefined,

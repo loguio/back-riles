@@ -161,3 +161,89 @@ describe("LlmService.extractRulesDeterministically", () => {
     ).toEqual([]);
   });
 });
+
+describe("RILES-029 — buildCompactAthleteMarkdownContext sans données fabriquées", () => {
+  const service = createService();
+  const paces = {
+    easyPaceZ2: "5:45/km",
+    marathonPaceZ3: "5:10/km",
+    thresholdPaceZ4: "4:45/km",
+    intervalPaceZ5: "4:20/km",
+    targetRacePace: "4:40/km",
+  };
+
+  it("déclare explicitement les données absentes au lieu d'inventer des valeurs", () => {
+    const ctx: any = {
+      activeGoalTitle: "",
+      rules: [],
+      trainingContext: {},
+    };
+    const prompt = service.buildCompactAthleteMarkdownContext(ctx, paces);
+
+    expect(prompt).toContain("Durée de préparation non renseignée");
+    expect(prompt).toContain("Non déterminé (aucune donnée de volume");
+    expect(prompt).toContain("Non mesurée (aucune séance synchronisée");
+    // Aucun default fabriqué ni macrocycle inventé
+    expect(prompt).not.toContain("reste ~8 semaines");
+    expect(prompt).not.toContain("MACROCYCLE");
+    expect(prompt).not.toContain("TSB (Forme) 6");
+    expect(prompt).not.toContain("ATL (Fatigue) 42");
+    expect(prompt).not.toContain("CTL (Fitness) 48");
+  });
+
+  it("reflète les valeurs réelles de la base quand elles existent", () => {
+    const ctx: any = {
+      activeGoalTitle: "Semi-marathon",
+      activeGoalWeeksRemaining: 12,
+      totalKm: 48,
+      activeWeeks: 4,
+      atlFatigue: 40,
+      ctlFitness: 45,
+      tsbForm: 5,
+      rules: [],
+      trainingContext: { recentWeeklyKm: 42 },
+    };
+    const prompt = service.buildCompactAthleteMarkdownContext(ctx, paces);
+
+    expect(prompt).toContain("reste ~12 semaines");
+    expect(prompt).toContain("~42 km/semaine");
+    expect(prompt).toContain(
+      "TSB (Forme) 5 | ATL (Fatigue) 40 | CTL (Fitness) 45",
+    );
+    expect(prompt).not.toContain("MACROCYCLE");
+  });
+});
+
+describe("RILES-028 — buildConversationHistorySection (fenêtre bornée)", () => {
+  const service = createService();
+
+  it("retourne une chaîne vide sans historique", () => {
+    expect(service.buildConversationHistorySection(undefined)).toBe("");
+    expect(service.buildConversationHistorySection([])).toBe("");
+  });
+
+  it("n'inclut que les 12 derniers messages, chronologiques et tronqués", () => {
+    const history = Array.from({ length: 20 }, (_, i) => ({
+      role: i % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      text: `message-${i}`,
+    }));
+    const section = service.buildConversationHistorySection(history);
+
+    expect(section).not.toContain("message-7]"); // ancien message écarté
+    expect(section).toContain("message-19");
+    expect(section).toContain("- Utilisateur : message-8");
+    // Ordre chronologique : le plus ancien conservé en premier
+    const firstIdx = section.indexOf("message-8");
+    const lastIdx = section.indexOf("message-19");
+    expect(firstIdx).toBeGreaterThan(-1);
+    expect(firstIdx).toBeLessThan(lastIdx);
+  });
+
+  it("tronque les messages trop longs à 400 caractères", () => {
+    const section = service.buildConversationHistorySection([
+      { role: "user", text: "x".repeat(1000) },
+    ]);
+    expect(section).toContain(`${"x".repeat(400)}…`);
+    expect(section).not.toContain("x".repeat(401));
+  });
+});

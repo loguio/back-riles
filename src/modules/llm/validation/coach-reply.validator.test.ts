@@ -13,7 +13,7 @@ const VALID_WEEK_CHANGES = [
     dateKey: "2026-10-15",
     isRestDay: false,
     category: "ENDURANCE FONDAMENTALE",
-    title: "Footing léger (Adapté IA)",
+    title: "Footing léger (Adapté)",
     duration: "35 min",
     distance: "6,0 km",
     targetPace: "5:45/km",
