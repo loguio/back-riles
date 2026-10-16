@@ -4,19 +4,15 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
 import { AuthService } from "./auth.service";
 import { AuthController } from "./auth.controller";
 import { SupabaseAuthGuard } from "./guards/supabase-auth.guard";
+import { requireJwtSecret } from "./jwt-secret";
 
 @Module({
   imports: [
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>(
-          "SUPABASE_JWT_SECRET",
-          configService.get<string>(
-            "JWT_SECRET",
-            "super-secret-riles-jwt-key-2026-change-in-prod",
-          ),
-        ),
+        // Fail closed: boot refuses to continue without a real secret.
+        secret: requireJwtSecret((key) => configService.get<string>(key)),
         signOptions: {
           expiresIn: configService.get<string>("JWT_EXPIRATION", "7d"),
         },

@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Body,
+  Param,
   HttpCode,
   HttpStatus,
 } from "@nestjs/common";
@@ -13,6 +14,7 @@ import {
   ChatResponseDto,
   ChatMessageDto,
   QuickPromptDto,
+  SuggestedActionDto,
 } from "./dto/coach.dto";
 import { CurrentUserId } from "../../common/decorators/current-user.decorator";
 
@@ -50,6 +52,53 @@ export class CoachController {
     @Body() dto: SendChatMessageDto,
   ): Promise<ChatResponseDto> {
     return this.coachService.processMessage(userId, dto);
+  }
+
+  @Post("actions/:messageId/confirm")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      "Confirme et applique une proposition du Coach (RILES-019 — écriture transactionnelle)",
+  })
+  @ApiResponse({ status: 200, type: SuggestedActionDto })
+  @ApiResponse({ status: 400, description: "Proposition absente ou déjà traitée" })
+  @ApiResponse({ status: 404, description: "Message non trouvé" })
+  async confirmAction(
+    @CurrentUserId() userId: string,
+    @Param("messageId") messageId: string,
+  ): Promise<SuggestedActionDto> {
+    return this.coachService.confirmAction(userId, messageId);
+  }
+
+  @Post("actions/:messageId/discard")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Écarte une proposition du Coach sans rien appliquer (RILES-019)",
+  })
+  @ApiResponse({ status: 200, type: SuggestedActionDto })
+  @ApiResponse({ status: 400 })
+  @ApiResponse({ status: 404 })
+  async discardAction(
+    @CurrentUserId() userId: string,
+    @Param("messageId") messageId: string,
+  ): Promise<SuggestedActionDto> {
+    return this.coachService.discardAction(userId, messageId);
+  }
+
+  @Post("actions/:messageId/undo")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      "Annule une proposition déjà appliquée en restaurant l'état antérieur (RILES-019)",
+  })
+  @ApiResponse({ status: 200, type: SuggestedActionDto })
+  @ApiResponse({ status: 400 })
+  @ApiResponse({ status: 404 })
+  async undoAction(
+    @CurrentUserId() userId: string,
+    @Param("messageId") messageId: string,
+  ): Promise<SuggestedActionDto> {
+    return this.coachService.undoAction(userId, messageId);
   }
 
   @Post("reset")

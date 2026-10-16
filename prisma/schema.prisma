@@ -32,31 +32,38 @@ model User {
   passwordHash   String?
   name           String
   initials       String
-  readinessScore Int     @default(88)
+  readinessScore Int     @default(0)
 
-  // Active Goal
-  activeGoalTitle              String @default("Semi-marathon de Paris")
-  activeGoalTarget             String @default("Passer sous les 2h")
-  activeGoalRaceDate           String @default("17 mars 2025")
-  activeGoalWeeksRemaining     Int    @default(6)
-  activeGoalProgressPercentage Int    @default(65)
+  // Active Goal — RILES-014 : aucun objectif de démonstration par défaut.
+  activeGoalTitle              String @default("")
+  activeGoalTarget             String @default("")
+  activeGoalRaceDate           String @default("")
+  activeGoalWeeksRemaining     Int    @default(0)
+  activeGoalProgressPercentage Int    @default(0)
 
   // Overall Stats & Physiological Load (Modèle de Banister : TSS, ATL, CTL, TSB)
-  activeWeeks    Int    @default(12)
-  totalKm        Float  @default(328.0)
-  completedRaces Int    @default(4)
-  atlFatigue     Float  @default(42.0) // Charge aiguë 7j (Fatigue)
-  ctlFitness     Float  @default(48.0) // Charge chronique 42j (Fitness)
-  tsbForm        Float  @default(6.0) // Balance de stress (Forme = CTL - ATL)
-  sleepScore     Int    @default(82)
-  hrvStatus      String @default("balanced")
+  // RILES-014 : tous les défauts sont à l'état zéro — aucun kilométrage, score
+  // ou charge fabriqué. Les fixtures de démonstration vivent dans prisma/seed.ts.
+  activeWeeks    Int    @default(0)
+  totalKm        Float  @default(0)
+  completedRaces Int    @default(0)
+  atlFatigue     Float  @default(0) // Charge aiguë 7j (Fatigue)
+  ctlFitness     Float  @default(0) // Charge chronique 42j (Fitness)
+  tsbForm        Float  @default(0)   // Balance de stress (Forme = CTL - ATL)
+  sleepScore     Int    @default(0)
+  hrvStatus      String @default("")
+  // FC max de l'athlète (RILES-021) : l'IF/TSS est calculé sur cette valeur,
+  // jamais sur la FC max observée sur la séance. `null` = estimation
+  // documentée (DEFAULT_ATHLETE_HRMAX).
+  hrMax  Int?
+  restHr Int?
 
   // Account Preferences & State
   planType              PlanType     @default(PRO)
   authProvider          AuthProvider @default(EMAIL)
-  isOnboardingCompleted Boolean      @default(true)
+  isOnboardingCompleted Boolean      @default(false)
   mainGoal              String?
-  selectedSports        String[]     @default(["running"])
+  selectedSports        String[] @default([])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -111,24 +118,27 @@ model Workout {
   effortBlocks       Json // Array of EffortBlock { title, durationLabel, type, flexRatio }
   tags               String[]      @default([])
   aiAdjustmentNote   String?
-  tss                Float? // Training Stress Score de la séance
+  tss                Float?        // Training Stress Score de la séance
+  sRpe               Float?        // Charge sRPE = RPE × durée(min) (RILES-027)
 
   // Données complètes de la vraie séance réalisée (récupérées via Webhooks Strava / Garmin / Apple Santé)
-  externalActivityId  String?
-  sourceProvider      String? // "strava", "garmin", "apple_health"
-  actualDistanceKm    Float? // ex: 14.25
-  actualDurationSec   Int? // ex: 4180
-  actualPace          String? // ex: "4:53/km"
-  actualAvgHeartRate  Int? // ex: 161
-  actualMaxHeartRate  Int? // ex: 179
-  actualElevationGain Float? // ex: 115.0
-  actualCalories      Int? // ex: 820
-  actualCadence       Int? // ex: 178
-  actualSplitsJson    Json? // Détail km par km (splits_metric / laps)
+  // Unique : une activité externe ne peut être écrite qu'une seule fois
+  // (anti-rejeu / anti-double-écriture cross-utilisateur — RILES-006)
+  externalActivityId  String?   @unique
+  sourceProvider      String?   // "strava", "garmin", "apple_health"
+  actualDistanceKm    Float?    // ex: 14.25
+  actualDurationSec   Int?      // ex: 4180
+  actualPace          String?   // ex: "4:53/km"
+  actualAvgHeartRate  Int?      // ex: 161
+  actualMaxHeartRate  Int?      // ex: 179
+  actualElevationGain Float?    // ex: 115.0
+  actualCalories      Int?      // ex: 820
+  actualCadence       Int?      // ex: 178
+  actualSplitsJson    Json?     // Détail km par km (splits_metric / laps)
   completedAt         DateTime?
   sportType           String?   @default("running") // "running", "cycling", "swimming", "strength", etc.
   isCommute           Boolean?  @default(false)
-  secondaryActivities Json? // Array of { id, title, sportType, distanceKm, durationSec, durationLabel, paceOrSpeedLabel, isCommute }
+  secondaryActivities Json?     // Array of { id, title, sportType, distanceKm, durationSec, durationLabel, paceOrSpeedLabel, isCommute }
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -155,7 +165,8 @@ model RpeCheckIn {
   aiPreservationMessage String
   submittedAt           DateTime @default(now())
 
-  @@index([userId])
+  @@index([workoutId])
+  @@index([userId, submittedAt])
   @@map("rpe_checkins")
 }
 
@@ -188,7 +199,7 @@ model ChatMessage {
   suggestedAction Json? // { type, label, applied, workoutId, details }
   createdAt       DateTime @default(now())
 
-  @@index([userId])
+  @@index([userId, createdAt])
   @@map("chat_messages")
 }
 
@@ -205,18 +216,18 @@ model WebhookEvent {
   id          String    @id @default(cuid())
   provider    String // "strava", "garmin", "apple_health"
   eventType   String // "activity.create", "health.summary", etc.
+  objectId    String? // Identifiant externe de l'objet (activityId, summaryId, workoutUuid, empreinte du payload)
   payload     Json
   processed   Boolean   @default(false)
   processedAt DateTime?
   createdAt   DateTime  @default(now())
 
+  // Anti-rejeu / idempotence (RILES-006) : une même livraison
+  // (provider, eventType, objectId) ne peut être enregistrée qu'une fois.
+  @@unique([provider, eventType, objectId])
   @@map("webhook_events")
 }
 
-// ---------------------------------------------------------------------------
-// Waitlist (pre-auth signups captured from the landing page)
-// Kept separate from User: no password, no auth identity until beta invite.
-// ---------------------------------------------------------------------------
 model WaitlistEntry {
   id          String   @id @default(cuid())
   email       String   @unique

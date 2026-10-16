@@ -1,0 +1,17 @@
+-- AlterTable
+ALTER TABLE "users" ALTER COLUMN "readinessScore" SET DEFAULT 0,
+ALTER COLUMN "activeGoalTitle" SET DEFAULT '',
+ALTER COLUMN "activeGoalTarget" SET DEFAULT '',
+ALTER COLUMN "activeGoalRaceDate" SET DEFAULT '',
+ALTER COLUMN "activeGoalWeeksRemaining" SET DEFAULT 0,
+ALTER COLUMN "activeGoalProgressPercentage" SET DEFAULT 0,
+ALTER COLUMN "activeWeeks" SET DEFAULT 0,
+ALTER COLUMN "totalKm" SET DEFAULT 0,
+ALTER COLUMN "completedRaces" SET DEFAULT 0,
+ALTER COLUMN "atlFatigue" SET DEFAULT 0,
+ALTER COLUMN "ctlFitness" SET DEFAULT 0,
+ALTER COLUMN "tsbForm" SET DEFAULT 0,
+ALTER COLUMN "sleepScore" SET DEFAULT 0,
+ALTER COLUMN "hrvStatus" SET DEFAULT '',
+ALTER COLUMN "isOnboardingCompleted" SET DEFAULT false,
+ALTER COLUMN "selectedSports" SET DEFAULT ARRAY[]::TEXT[];

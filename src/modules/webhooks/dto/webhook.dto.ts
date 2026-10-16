@@ -1,11 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import {
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  IsObject,
-  IsNumber,
-} from "class-validator";
+import { IsOptional, IsString, IsObject, IsNumber } from "class-validator";
 
 export class StravaWebhookQueryDto {
   @ApiProperty({ example: "subscribe" })

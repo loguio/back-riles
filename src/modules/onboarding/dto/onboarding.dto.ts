@@ -6,7 +6,6 @@ import {
   IsNumber,
   IsArray,
   IsBoolean,
-  IsIn,
 } from "class-validator";
 import { StravaSixMonthsSummaryDto } from "../../llm/dto/llm.dto";
 
@@ -213,4 +212,3 @@ export class ReformulateOnboardingGoalDto {
   @IsString()
   targetRaceDate?: string;
 }
-

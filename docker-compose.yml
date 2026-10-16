@@ -29,7 +29,9 @@ services:
       PORT: 3000
       NODE_ENV: production
       DATABASE_URL: "postgresql://riles_user:riles_password@postgres:5432/riles_db?schema=public"
-      JWT_SECRET: super-secret-riles-jwt-key-2026-change-in-prod
+      # Fail closed: compose refuses to start the backend without a real secret.
+      # Set JWT_SECRET in your shell or an untracked .env file (never commit it).
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - set it before starting (no default value)}
       STRAVA_VERIFY_TOKEN: riles_strava_webhook_token_2026
       GARMIN_WEBHOOK_SECRET: riles_garmin_webhook_secret_2026
       APPLE_HEALTH_SECRET: riles_apple_health_secret_2026

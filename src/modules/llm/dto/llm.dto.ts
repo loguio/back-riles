@@ -1,16 +1,10 @@
-import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { ApiProperty } from "@nestjs/swagger";
 
 export type SafetyStatus =
-  | "safe"
-  | "warning_fatigue"
-  | "medical_stop"
-  | "unrealistic_goal";
+  "safe" | "warning_fatigue" | "medical_stop" | "unrealistic_goal";
 
 export type EligibilityStatus =
-  | "ELIGIBLE"
-  | "CONTEXT_NEEDED"
-  | "WARNING"
-  | "UNREALISTIC_DANGEROUS";
+  "ELIGIBLE" | "CONTEXT_NEEDED" | "WARNING" | "UNREALISTIC_DANGEROUS";
 
 export interface ExtractedGoalDto {
   title: string;
@@ -227,8 +221,16 @@ export interface MultiWeekPlanGenerationOutput {
   workouts: GeneratedWorkoutItemDto[];
 }
 
+/** RILES-028 — Un tour de conversation re-soumis au LLM (fenêtre bornée). */
+export interface CoachChatTurn {
+  role: "user" | "assistant";
+  text: string;
+}
+
 export interface LlmCoachReplyInput {
   userPrompt: string;
+  /** RILES-028 — Fenêtre bornée des messages récents (chronologique). */
+  conversationHistory?: CoachChatTurn[];
   athleteContext: {
     userName?: string;
     readinessScore?: number;
@@ -242,7 +244,12 @@ export interface LlmCoachReplyInput {
     ctlFitness?: number;
     tsbForm?: number;
     selectedSports?: string[];
-    rules?: Array<{ id?: string; title: string; description: string; icon: string }>;
+    rules?: Array<{
+      id?: string;
+      title: string;
+      description: string;
+      icon: string;
+    }>;
     trainingContext?: AthleteTrainingContextDto;
     todayDate?: string;
     pastCompletedWorkouts?: Array<{

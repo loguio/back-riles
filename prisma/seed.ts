@@ -4,10 +4,21 @@ import {
   AuthProvider,
   PlanType,
 } from "@prisma/client";
+import { assertDestructiveRunAllowed, isDestructiveRunRefusal } from "./guard";
 
 const prisma = new PrismaClient();
 
 async function main() {
+  // RILES-033 : le seed efface toutes les tables avant de les remplir — il
+  // refuse donc de démarrer sans --force, en production, ou sur une base qui
+  // n'est pas une base de développement locale.
+  assertDestructiveRunAllowed(
+    "prisma/seed.ts (npm run prisma:seed / prisma db seed)",
+  );
+
+  console.warn(
+    "⚠️  Attention : ce seed est destructif. Il va supprimer toutes les tables existantes (utilisateurs, séances, messages) avant de créer des données de démonstration.",
+  );
   console.log("🌱 Démarrage du seed Prisma pour Riles Backend...");
 
   // Nettoyage complet des données précédentes
@@ -36,6 +47,13 @@ async function main() {
       activeWeeks: 12,
       totalKm: 328.0,
       completedRaces: 4,
+      // Fixtures de démonstration : portées explicitement ici (RILES-014),
+      // les défauts du schéma sont à l'état zéro pour les vrais utilisateurs.
+      atlFatigue: 42.0,
+      ctlFitness: 48.0,
+      tsbForm: 6.0,
+      sleepScore: 82,
+      hrvStatus: "balanced",
       planType: PlanType.PRO,
       authProvider: AuthProvider.APPLE,
       isOnboardingCompleted: true,
@@ -935,7 +953,7 @@ async function main() {
       ],
       tags: ["8,5 km", "Allure cible : 4:45/km", "Zone 3/4"],
       aiAdjustmentNote:
-        "L'IA a ajusté le seuil pour préserver tes mollets aujourd'hui.",
+        "Travail de seuil : vise la zone cible sans forcer si la fatigue s'installe.",
     },
     {
       userId: user.id,
@@ -1383,7 +1401,7 @@ async function main() {
   ];
 
   let createdWorkoutCount = 0;
-  let createdWorkoutsList = [];
+  const createdWorkoutsList = [];
   for (const item of workoutsData) {
     const w = await prisma.workout.create({
       data: item,
@@ -1425,7 +1443,7 @@ async function main() {
       rating: 5,
       feedbackLabel: "Modéré",
       aiPreservationMessage:
-        "L'IA a ajusté le seuil pour préserver tes mollets aujourd'hui.",
+        "Effort modéré, cohérent avec l'intention de la séance. Rien à ajuster dans ton plan sur cette base.",
       submittedAt: new Date("2026-10-14T18:35:00.000Z"),
     },
   });
@@ -1436,7 +1454,12 @@ async function main() {
 
 main()
   .catch((e) => {
-    console.error("❌ Erreur pendant le seed :", e);
+    if (isDestructiveRunRefusal(e)) {
+      // Refus assumé (RILES-033) : on affiche la phrase complète, sans stack.
+      console.error(e.message);
+    } else {
+      console.error("❌ Erreur pendant le seed :", e);
+    }
     process.exit(1);
   })
   .finally(async () => {

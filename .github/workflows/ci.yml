@@ -28,5 +28,11 @@ jobs:
         run: npm run test:integration
         env:
           NODE_ENV: test
+      - name: Apply database migrations (deploy)
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+
       - name: Build
         run: npm run build

@@ -7,20 +7,25 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "nest build",
-    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "jest",
+    "type-check": "tsc --noEmit",
+    "format": "prettier --write \"src/**/*.ts\" \"prisma/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"prisma/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main",
+    "start:prod": "node dist/src/main.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "ts-node prisma/seed.ts",
+    "prisma:seed:dev": "ts-node prisma/seed.ts --force",
     "prisma:studio": "prisma studio",
     "db:clean": "ts-node prisma/clean.ts",
     "db:wipe": "ts-node prisma/clean.ts",
-    "test": "jest",
-    "type-check": "tsc --noEmit -p tsconfig.json",
-    "lint": "eslint \"{src,test}/**/*.ts\" --max-warnings 0",
+    "db:wipe:dev": "ts-node prisma/clean.ts --force",
     "test:integration": "node scripts/run-integrations.mjs"
   },
   "dependencies": {
@@ -33,6 +38,7 @@
     "@nestjs/swagger": "^7.4.2",
     "@prisma/client": "^5.22.0",
     "@supabase/supabase-js": "^2.116.0",
+    "argon2": "^0.45.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "passport": "^0.7.0",
@@ -41,24 +47,30 @@
     "rxjs": "^7.8.1"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@nestjs/cli": "^10.4.9",
     "@nestjs/schematics": "^10.2.3",
-    "@nestjs/testing": "^10.4.22",
     "@types/express": "^4.17.21",
-    "@types/jest": "^29.5.14",
+    "@types/jest": "^30.0.0",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20.17.10",
     "@types/passport-jwt": "^4.0.1",
     "dotenv": "^16.4.7",
-    "jest": "^29.7.0",
+    "eslint": "^10.12.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.13.0",
+    "jest": "^30.5.2",
+    "prettier": "^3.9.10",
     "prisma": "^5.22.0",
     "source-map-support": "^0.5.21",
-    "ts-jest": "^29.4.15",
+    "ts-jest": "^29.4.14",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.71.2",
+    "@nestjs/testing": "^10.4.22"
   },
   "prisma": {
-    "seed": "ts-node prisma/seed.ts"
+    "seed": "ts-node prisma/seed.ts --force"
   }
 }

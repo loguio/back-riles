@@ -12,6 +12,25 @@ import {
   GenerateMultiWeekPlanResponseDto,
 } from "./dto/workout.dto";
 import { WorkoutStatus } from "@prisma/client";
+import { runInTransaction } from "../../prisma/transaction";
+
+/**
+ * Convertit une durée d'affichage ("1h15", "45 min", "—") en minutes.
+ * Retourne 0 pour les valeurs vides/non parsées.
+ */
+function parseDurationStringToMin(duration?: string | null): number {
+  if (!duration) return 0;
+  const hourMatch = duration.match(/(\d+)\s*h\s*(\d+)?/i);
+  if (hourMatch) {
+    const h = parseInt(hourMatch[1], 10);
+    const m = hourMatch[2] ? parseInt(hourMatch[2], 10) : 0;
+    return h * 60 + m;
+  }
+  const minMatch = duration.match(/(\d+)\s*min/i);
+  if (minMatch) return parseInt(minMatch[1], 10);
+  const bare = duration.match(/^(\d+)$/);
+  return bare ? parseInt(bare[1], 10) : 0;
+}
 
 @Injectable()
 export class WorkoutsService {
@@ -28,9 +47,7 @@ export class WorkoutsService {
     const dayNr = target.getUTCDay() || 7;
     target.setUTCDate(target.getUTCDate() + 4 - dayNr);
     const jan1 = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
-    return Math.ceil(
-      ((target.getTime() - jan1.getTime()) / 86400000 + 1) / 7,
-    );
+    return Math.ceil(((target.getTime() - jan1.getTime()) / 86400000 + 1) / 7);
   }
 
   private getMondayOfWeek(year: number, week: number): Date {
@@ -82,7 +99,7 @@ export class WorkoutsService {
     const monthStr = String(effectiveMonth + 1).padStart(2, "0");
     const prefix = `${effectiveYear}-${monthStr}`;
 
-    let workouts = await this.prisma.workout.findMany({
+    const workouts = await this.prisma.workout.findMany({
       where: {
         userId,
         OR: [
@@ -231,25 +248,29 @@ export class WorkoutsService {
     dto: RpeCheckInRequestDto,
   ): Promise<RpeCheckInResponseDto> {
     let feedbackLabel = "Modéré";
+    // RILES-025 / RILES-018 — Ces messages ne doivent PRÉTENDRE aucun
+    // changement de plan (aucun repos inséré, aucun volume allégé n'est
+    // écrit ici) : ils décrivent uniquement l'évaluation de l'effort et,
+    // le cas échéant, une suggestion clairement formulée comme telle.
     let aiPreservationMessage =
-      "L'IA a calibré ta charge pour préserver tes mollets aujourd'hui.";
+      "Évaluation de ton ressenti enregistrée sur cette séance. Aucun changement de plan n'est appliqué automatiquement.";
 
     if (dto.rating <= 3) {
       feedbackLabel = "Très facile";
       aiPreservationMessage =
-        "Parfait ! Ton niveau de forme est excellent, nous maintenons les allures cibles.";
+        "Effort très facile : ta fraîcheur est bonne. Si tu le souhaites, on peut en discuter pour augmenter légèrement le volume de la prochaine séance (plafonné à +10 %).";
     } else if (dto.rating <= 6) {
       feedbackLabel = "Modéré";
       aiPreservationMessage =
-        "L'IA a ajusté le seuil pour préserver tes mollets aujourd'hui.";
+        "Effort modéré, cohérent avec l'intention de la séance. Rien à ajuster dans ton plan sur cette base.";
     } else if (dto.rating <= 8) {
       feedbackLabel = "Difficile";
       aiPreservationMessage =
-        "Séance intense détectée. L'IA a allégé le volume de demain pour optimiser ta récupération.";
+        "Effort difficile : prévois une récupération attentive. Suggestion : si la fatigue persiste, allège la prochaine séance.";
     } else {
       feedbackLabel = "À fond";
       aiPreservationMessage =
-        "Charge maximale atteinte. Un jour de repos actif a été automatiquement inséré.";
+        "Effort très intense : un vrai repos est recommandé avant la prochaine séance. Suggestion : garde la prochaine séance très légère.";
     }
 
     const checkIn = await this.prisma.rpeCheckIn.create({
@@ -263,6 +284,26 @@ export class WorkoutsService {
         aiPreservationMessage,
       },
     });
+
+    // RILES-027 : charge interne sRPE = RPE × durée(min), stockée sur la
+    // séance. Sert de charge de repli quand la FC manque (voir
+    // training-science.computeSessionTss, chemin sRPE).
+    if (dto.workoutId) {
+      const workout = await this.prisma.workout.findFirst({
+        where: { id: dto.workoutId, userId },
+      });
+      if (workout) {
+        const durationMin =
+          (workout.actualDurationSec ?? 0) > 0
+            ? (workout.actualDurationSec as number) / 60
+            : parseDurationStringToMin(workout.duration);
+        const sRpe = Math.round(dto.rating * durationMin);
+        await this.prisma.workout.update({
+          where: { id: workout.id },
+          data: { sRpe },
+        });
+      }
+    }
 
     // Enregistrement asynchrone non-bloquant dans le Data Lake
     this.dataLakeService.logTrainingInteraction({
@@ -307,40 +348,44 @@ export class WorkoutsService {
       throw new NotFoundException(`Workout ${identifier} not found`);
     }
 
+    // RILES-018 — Ces adaptations sont des règles déterministes appliquées
+    // à la demande de l'utilisateur : aucune n'est générée par une IA, les
+    // libellés et notes ne revendiquent donc plus d'« IA » et décrivent
+    // exactement la modification réellement écrite en base.
     let updates: any = {};
 
     switch (dto.adaptationType) {
       case "lighten":
         updates = {
-          title: "Footing Léger & Lignes Droites (Adapté IA)",
+          title: "Footing Léger & Lignes Droites (Adapté)",
           duration: "35 min",
           distance: "6,0 km",
           targetPace: "5:30/km",
           targetZoneLabel: "Zone 2",
           targetZoneBpm: "135–148 bpm",
           aiAdjustmentNote:
-            "Séance allégée : volume réduit de 40% pour compenser la fatigue.",
+            "Séance allégée à ta demande : 35 min en Zone 2 (allure 5:30/km).",
           tags: ["6,0 km", "Allure : 5:30/km", "Zone 2"],
         };
         break;
 
       case "easy_run":
         updates = {
-          title: "30 min Footing Souple Régénérant (Adapté IA)",
+          title: "30 min Footing Souple Régénérant (Adapté)",
           duration: "30 min",
           distance: "5,0 km",
           targetPace: "6:00/km",
           targetZoneLabel: "Zone 1–2",
           targetZoneBpm: "125–138 bpm",
           aiAdjustmentNote:
-            "Remplacement validé : footing souple pour favoriser l’oxygénation.",
+            "Remplacement à ta demande : 30 min de footing souple en Zone 1–2.",
           tags: ["5,0 km", "Endurance fondamentale", "Zone 1/2"],
         };
         break;
 
       case "postpone":
         updates = {
-          title: "Repos / Récupération (Décalé à demain)",
+          title: "Repos / Récupération (Adapté)",
           isRestDay: true,
           status: WorkoutStatus.REST,
           duration: "—",
@@ -348,20 +393,20 @@ export class WorkoutsService {
           targetZoneLabel: "Zone 1",
           targetZoneBpm: "< 110 bpm",
           aiAdjustmentNote:
-            "Séance clé décalée au lendemain pour respecter tes disponibilités.",
+            "Journée remplacée par un jour de repos à ta demande (la séance n'est pas reportée automatiquement).",
           tags: ["Repos actif", "Hydratation"],
         };
         break;
 
       case "injury_care":
         updates = {
-          title: "Mobilité douce & Glaçage Mollet (Adapté IA)",
+          title: "Mobilité douce & Glaçage Mollet (Adapté)",
           duration: "20 min",
           distance: "0 km",
           targetZoneLabel: "Zone 1",
           targetZoneBpm: "< 115 bpm",
           aiAdjustmentNote:
-            "Course suspendue 24h pour prévenir toute contracture du mollet.",
+            "Séance remplacée par 20 min de mobilité douce à ta demande.",
           tags: ["Mobilité", "Prévention blessure"],
         };
         break;
@@ -441,7 +486,9 @@ export class WorkoutsService {
         : 12);
 
     const calculatedPaces = this.llmService.computePacesFromRecentPerformance({
-      hasSyncedHistory: Boolean(sixMonthsSummary || recentDoneWorkouts.length > 0),
+      hasSyncedHistory: Boolean(
+        sixMonthsSummary || recentDoneWorkouts.length > 0,
+      ),
       recentWeeklyKm,
       recent4WeeksAvgKm: sixMonthsSummary?.recent4WeeksAvgKm,
       totalKm6Months: sixMonthsSummary?.totalDistanceKm ?? user?.totalKm,
@@ -526,7 +573,8 @@ export class WorkoutsService {
         selectedSports: user?.selectedSports || ["running"],
       },
       physiologicalState: {
-        readinessScore: user?.readinessScore ?? 80,
+        // RILES-029 : pas de default fabriqué — 80 n'était pas une mesure.
+        readinessScore: user?.readinessScore,
         totalKm: sixMonthsSummary?.totalDistanceKm ?? user?.totalKm ?? 0,
         activeWeeks: sixMonthsSummary?.activeWeeks ?? user?.activeWeeks ?? 0,
         recentWeeklyKm,
@@ -555,108 +603,113 @@ export class WorkoutsService {
     });
 
     // Sauvegarde automatique en base PostgreSQL sans écraser les séances déjà réalisées (DONE)
-    const existingDoneWorkouts = await this.prisma.workout.findMany({
-      where: {
-        userId,
-        dateKey: { in: calendarDays.map((c) => c.dateKey) },
-        status: WorkoutStatus.DONE,
-      },
-      select: { dateKey: true },
-    });
-    const doneDateKeys = new Set(existingDoneWorkouts.map((w) => w.dateKey));
-
-    for (const item of llmPlan.workouts) {
-      if (doneDateKeys.has(item.dateKey)) {
-        continue; // On conserve précieusement les vraies séances passées (Strava 6 mois)
-      }
-
-      const todayDateKey = new Date().toISOString().split("T")[0];
-      const isToday = item.dateKey === todayDateKey;
-      const status = item.isRestDay
-        ? WorkoutStatus.REST
-        : isToday
-          ? WorkoutStatus.SELECTED
-          : WorkoutStatus.UPCOMING;
-
-      await this.prisma.workout.upsert({
+    // RILES-031 : l'écriture complète est atomique (une seule transaction).
+    // En cas d'échec en cours de sauvegarde, on retrouve l'ancien plan intact :
+    // jamais un plan à moitié écrasé ni un message de chat orphelin.
+    await runInTransaction(this.prisma, async (tx) => {
+      const existingDoneWorkouts = await tx.workout.findMany({
         where: {
-          userId_dateKey: {
+          userId,
+          dateKey: { in: calendarDays.map((c) => c.dateKey) },
+          status: WorkoutStatus.DONE,
+        },
+        select: { dateKey: true },
+      });
+      const doneDateKeys = new Set(existingDoneWorkouts.map((w) => w.dateKey));
+
+      for (const item of llmPlan.workouts) {
+        if (doneDateKeys.has(item.dateKey)) {
+          continue; // On conserve précieusement les vraies séances passées (Strava 6 mois)
+        }
+
+        const todayDateKey = new Date().toISOString().split("T")[0];
+        const isToday = item.dateKey === todayDateKey;
+        const status = item.isRestDay
+          ? WorkoutStatus.REST
+          : isToday
+            ? WorkoutStatus.SELECTED
+            : WorkoutStatus.UPCOMING;
+
+        await tx.workout.upsert({
+          where: {
+            userId_dateKey: {
+              userId,
+              dateKey: item.dateKey,
+            },
+          },
+          update: {
+            dayName: item.dayName,
+            dayNumber: item.dayNumber,
+            month: item.month,
+            year: item.year,
+            weekNumber: item.weekNumber,
+            fullDateLabel: item.fullDateLabel,
+            timeLabel: item.timeLabel,
+            status,
+            isRestDay: item.isRestDay,
+            category: item.category,
+            title: item.title,
+            duration: item.duration,
+            distance: item.distance,
+            targetPace: item.targetPace,
+            targetZoneLabel: item.targetZoneLabel,
+            targetZoneBpm: item.targetZoneBpm,
+            targetZoneSegments: item.targetZoneSegments as any,
+            pinPositionPercent: item.pinPositionPercent,
+            effortBlocks: item.effortBlocks as any,
+            tags: item.tags,
+            aiAdjustmentNote: item.aiAdjustmentNote,
+            tss: item.tss,
+          },
+          create: {
             userId,
             dateKey: item.dateKey,
-          },
-        },
-        update: {
-          dayName: item.dayName,
-          dayNumber: item.dayNumber,
-          month: item.month,
-          year: item.year,
-          weekNumber: item.weekNumber,
-          fullDateLabel: item.fullDateLabel,
-          timeLabel: item.timeLabel,
-          status,
-          isRestDay: item.isRestDay,
-          category: item.category,
-          title: item.title,
-          duration: item.duration,
-          distance: item.distance,
-          targetPace: item.targetPace,
-          targetZoneLabel: item.targetZoneLabel,
-          targetZoneBpm: item.targetZoneBpm,
-          targetZoneSegments: item.targetZoneSegments as any,
-          pinPositionPercent: item.pinPositionPercent,
-          effortBlocks: item.effortBlocks as any,
-          tags: item.tags,
-          aiAdjustmentNote: item.aiAdjustmentNote,
-          tss: item.tss,
-        },
-        create: {
-          userId,
-          dateKey: item.dateKey,
-          dayName: item.dayName,
-          dayNumber: item.dayNumber,
-          month: item.month,
-          year: item.year,
-          weekNumber: item.weekNumber,
-          fullDateLabel: item.fullDateLabel,
-          timeLabel: item.timeLabel,
-          status,
-          isRestDay: item.isRestDay,
-          category: item.category,
-          title: item.title,
-          duration: item.duration,
-          distance: item.distance,
-          targetPace: item.targetPace,
-          targetZoneLabel: item.targetZoneLabel,
-          targetZoneBpm: item.targetZoneBpm,
-          targetZoneSegments: item.targetZoneSegments as any,
-          pinPositionPercent: item.pinPositionPercent,
-          effortBlocks: item.effortBlocks as any,
-          tags: item.tags,
-          aiAdjustmentNote: item.aiAdjustmentNote,
-          tss: item.tss,
-        },
-      });
-    }
-
-    // Si le chat est encore vierge, on place uniquement un message d'accueil simple et naturel
-    if (user) {
-      const existingCount = await this.prisma.chatMessage.count({
-        where: { userId },
-      });
-      if (existingCount === 0) {
-        await this.prisma.chatMessage.create({
-          data: {
-            userId,
-            sender: "coach",
-            text: "Salut ! Je suis ton coach IA. Dis-moi si tu as une question sur une séance, tes sensations ou si tu souhaites adapter ton planning.",
-            timestamp: new Date().toLocaleTimeString("fr-FR", {
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
+            dayName: item.dayName,
+            dayNumber: item.dayNumber,
+            month: item.month,
+            year: item.year,
+            weekNumber: item.weekNumber,
+            fullDateLabel: item.fullDateLabel,
+            timeLabel: item.timeLabel,
+            status,
+            isRestDay: item.isRestDay,
+            category: item.category,
+            title: item.title,
+            duration: item.duration,
+            distance: item.distance,
+            targetPace: item.targetPace,
+            targetZoneLabel: item.targetZoneLabel,
+            targetZoneBpm: item.targetZoneBpm,
+            targetZoneSegments: item.targetZoneSegments as any,
+            pinPositionPercent: item.pinPositionPercent,
+            effortBlocks: item.effortBlocks as any,
+            tags: item.tags,
+            aiAdjustmentNote: item.aiAdjustmentNote,
+            tss: item.tss,
           },
         });
       }
-    }
+
+      // Si le chat est encore vierge, on place uniquement un message d'accueil simple et naturel
+      if (user) {
+        const existingCount = await tx.chatMessage.count({
+          where: { userId },
+        });
+        if (existingCount === 0) {
+          await tx.chatMessage.create({
+            data: {
+              userId,
+              sender: "coach",
+              text: "Salut ! Je suis ton coach IA. Dis-moi si tu as une question sur une séance, tes sensations ou si tu souhaites adapter ton planning.",
+              timestamp: new Date().toLocaleTimeString("fr-FR", {
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+            },
+          });
+        }
+      }
+    });
 
     this.dataLakeService.logTrainingInteraction({
       userId,
@@ -912,9 +965,8 @@ export class WorkoutsService {
         entry.plannedRunningSessions += 1;
         if (isRunning && w.distance) {
           const distNum =
-            parseFloat(
-              w.distance.replace(",", ".").replace(/[^0-9.]/g, ""),
-            ) || 0;
+            parseFloat(w.distance.replace(",", ".").replace(/[^0-9.]/g, "")) ||
+            0;
           entry.plannedKm += distNum;
         }
         entry.keySessions.push(`${w.dayName} : ${w.title} (${w.distance})`);
@@ -929,7 +981,12 @@ export class WorkoutsService {
 
       if (Array.isArray(w.secondaryActivities)) {
         for (const sec of w.secondaryActivities as any[]) {
-          if (sec && !sec.isCommute && sec.sportType === "running" && sec.distanceKm) {
+          if (
+            sec &&
+            !sec.isCommute &&
+            sec.sportType === "running" &&
+            sec.distanceKm
+          ) {
             entry.completedKm += Number(sec.distanceKm) || 0;
           }
         }
@@ -1049,9 +1106,7 @@ export class WorkoutsService {
         const avgKm = Math.round(
           pWeeks.reduce((s, w) => s + w.plannedKm, 0) / pWeeks.length,
         );
-        const peakKm = Math.round(
-          Math.max(...pWeeks.map((w) => w.plannedKm)),
-        );
+        const peakKm = Math.round(Math.max(...pWeeks.map((w) => w.plannedKm)));
         const sessionsPerWeek = Math.round(
           pWeeks.reduce((s, w) => s + w.plannedRunningSessions, 0) /
             pWeeks.length,

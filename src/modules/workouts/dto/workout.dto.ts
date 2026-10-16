@@ -1,17 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import {
-  IsNotEmpty,
   IsOptional,
   IsString,
   IsNumber,
   IsArray,
-  IsBoolean,
   IsIn,
   Min,
   Max,
-  ValidateNested,
 } from "class-validator";
-import { Type } from "class-transformer";
 
 export class EffortBlockDto {
   @ApiProperty({ example: "Seuil" })
@@ -117,7 +113,7 @@ export class WorkoutSessionDto {
   tags?: string[];
 
   @ApiPropertyOptional({
-    example: "L'IA a ajusté le seuil pour préserver tes mollets aujourd'hui.",
+    example: "Séance allégée à ta demande : 35 min en Zone 2 (allure 5:30/km).",
   })
   aiAdjustmentNote?: string;
 
@@ -210,7 +206,9 @@ export class UpdateWorkoutDto {
   @IsString()
   targetZoneBpm?: string;
 
-  @ApiPropertyOptional({ example: "L'IA a ajusté le seuil." })
+  @ApiPropertyOptional({
+    example: "Séance allégée à ta demande : 35 min en Zone 2.",
+  })
   @IsOptional()
   @IsString()
   aiAdjustmentNote?: string;
@@ -233,7 +231,9 @@ export class RpeCheckInRequestDto {
   @IsString()
   workoutId?: string;
 
-  @ApiPropertyOptional({ example: "Sensations fluides mais mollets un peu raides sur la fin" })
+  @ApiPropertyOptional({
+    example: "Sensations fluides mais mollets un peu raides sur la fin",
+  })
   @IsOptional()
   @IsString()
   textComment?: string;
@@ -261,7 +261,8 @@ export class RpeCheckInResponseDto {
   submittedAt?: string;
 
   @ApiProperty({
-    example: "L'IA a ajusté le seuil pour préserver tes mollets aujourd'hui.",
+    example:
+      "Effort modéré, cohérent avec l'intention de la séance. Rien à ajuster dans ton plan sur cette base.",
   })
   aiPreservationMessage: string;
 }
@@ -300,7 +301,7 @@ export class GenerateMultiWeekPlanResponseDto {
 
   @ApiProperty({
     example:
-      "Ton plan de 4 semaines (Semaines 42 à 45) a été généré sur mesure par l'IA en respectant tes règles de vie.",
+      "Ton plan de 4 semaines a été généré en respectant tes règles de vie, avec des allures calibrées sur tes séances récentes.",
   })
   planSummary: string;
 

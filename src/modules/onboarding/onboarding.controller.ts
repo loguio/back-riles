@@ -51,8 +51,12 @@ export class OnboardingController {
     summary:
       "Génère l’URL d’autorisation OAuth2 Strava (Scope : 6 derniers mois d’activités & profil cardio)",
   })
-  getStravaOAuthUrl(@Query("redirectUri") redirectUri?: string) {
-    return this.onboardingService.getStravaOAuthUrl(redirectUri);
+  getStravaOAuthUrl(
+    @CurrentUserId() userId: string,
+    @Query("redirectUri") redirectUri?: string,
+  ) {
+    // RILES-007 : state OAuth lié à l'utilisateur authentifié appelant.
+    return this.onboardingService.getStravaOAuthUrl(redirectUri, userId);
   }
 
   @Post("strava/sync-six-months")
@@ -117,4 +121,3 @@ export class OnboardingController {
     return this.onboardingService.resetOnboarding(userId);
   }
 }
-

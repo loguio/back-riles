@@ -7,7 +7,7 @@ import { IS_PUBLIC_KEY } from "../../../common/decorators/public.decorator";
 async function runGuardTests() {
   console.log("▶ [Test Suite] SupabaseAuthGuard Validation");
 
-  const jwtSecret = "super-secret-riles-jwt-key-2026-change-in-prod";
+  const jwtSecret = "test-only-jwt-secret-for-the-legacy-guard-spec";
 
   let isPublicRoute = false;
   const mockReflector: any = {
@@ -26,7 +26,7 @@ async function runGuardTests() {
     },
   };
 
-  let databaseUsers: any[] = [
+  const databaseUsers: any[] = [
     {
       id: "existing-user-uuid",
       email: "existing@riles.app",

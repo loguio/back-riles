@@ -11,6 +11,7 @@ import { WebhooksModule } from "./modules/webhooks/webhooks.module";
 import { DataLakeModule } from "./modules/datalake/datalake.module";
 import { LlmModule } from "./modules/llm/llm.module";
 import { SupabaseAuthGuard } from "./modules/auth/guards/supabase-auth.guard";
+import { validateEnv } from "./modules/auth/jwt-secret";
 import { RateLimitGuard } from "./common/rate-limit/rate-limit.guard";
 import { HealthModule } from "./modules/health/health.module";
 import { WaitlistModule } from "./modules/waitlist/waitlist.module";
@@ -21,6 +22,9 @@ import { MetricsService } from "./common/metrics/metrics.service";
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: [".env", ".env.local"],
+      // Fail closed at boot: aborts before any provider is instantiated when
+      // SUPABASE_JWT_SECRET / JWT_SECRET is missing (RILES-002).
+      validate: validateEnv,
     }),
     PrismaModule,
     DataLakeModule,

@@ -17,7 +17,9 @@ const REQUIRED_IN_PROD = [
 
 async function bootstrap() {
   const logger = new Logger("Bootstrap");
-  const app = await NestFactory.create(AppModule);
+  // rawBody: conserve le corps HTTP brut (Buffer) sur req.rawBody, indispensable
+  // pour vérifier les signatures HMAC des webhooks (RILES-005) sur le contenu exact.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   const configService = app.get(ConfigService);
   const port = configService.get<number>("PORT", 3000);

@@ -287,7 +287,9 @@ export class DataLakeService implements OnModuleInit {
     }
     return {
       totalBufferedRecords: this.recentRecordsBuffer.length,
-      storageMode: this.supabaseClient ? "supabase_cloud_and_local" : "local_jsonl_partitioned",
+      storageMode: this.supabaseClient
+        ? "supabase_cloud_and_local"
+        : "local_jsonl_partitioned",
       bucketName: this.bucketName,
       localDirectory: this.localBaseDir,
       countsByInteractionType: byType,

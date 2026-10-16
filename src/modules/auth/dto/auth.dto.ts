@@ -33,7 +33,12 @@ export class SocialAuthDto {
   @IsString()
   name?: string;
 
-  @ApiPropertyOptional({ example: "oauth_id_token_xyz" })
+  @ApiPropertyOptional({
+    example: "oauth_id_token_xyz",
+    description:
+      "Id-token fourni par Apple/Google (ou jeton de session Supabase). " +
+      "Il est vérifié côté serveur : sans jeton vérifié, la connexion est refusée.",
+  })
   @IsOptional()
   @IsString()
   identityToken?: string;
