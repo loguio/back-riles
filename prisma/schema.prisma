@@ -227,3 +227,23 @@ model WebhookEvent {
   @@unique([provider, eventType, objectId])
   @@map("webhook_events")
 }
+
+model WaitlistEntry {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  goal        String? // semi | marathon | trail | 10k | reprise
+  source      String? // hero | navbar | simulator | footer
+  angle       String? // guilt | injury | garmin
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  locale      String   @default("fr")
+  consentAt   DateTime // horodatage RGPD de la case obligatoire
+  ipHash      String? // SHA-256 tronqué (anti-abus, jamais l'IP en clair)
+  status      String   @default("waiting") // waiting | invited | rejected
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@map("waitlist_entries")
+}

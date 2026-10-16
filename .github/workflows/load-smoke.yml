@@ -1,0 +1,17 @@
+name: Load smoke
+
+on:
+  schedule:
+    - cron: "17 5 * * *" # every day 05:17 UTC
+  workflow_dispatch:
+
+jobs:
+  landing-burst:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: grafana/setup-k6-action@v1
+      - name: Landing burst (20 rps / 60 s)
+        run: k6 run ../riles/tests/load/landing.js
+        env:
+          BASE_URL: "https://web-riles.netlify.app"
