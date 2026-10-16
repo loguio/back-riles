@@ -47,7 +47,7 @@ model User {
   completedRaces Int    @default(4)
   atlFatigue     Float  @default(42.0) // Charge aiguë 7j (Fatigue)
   ctlFitness     Float  @default(48.0) // Charge chronique 42j (Fitness)
-  tsbForm        Float  @default(6.0)  // Balance de stress (Forme = CTL - ATL)
+  tsbForm        Float  @default(6.0) // Balance de stress (Forme = CTL - ATL)
   sleepScore     Int    @default(82)
   hrvStatus      String @default("balanced")
 
@@ -111,24 +111,24 @@ model Workout {
   effortBlocks       Json // Array of EffortBlock { title, durationLabel, type, flexRatio }
   tags               String[]      @default([])
   aiAdjustmentNote   String?
-  tss                Float?        // Training Stress Score de la séance
+  tss                Float? // Training Stress Score de la séance
 
   // Données complètes de la vraie séance réalisée (récupérées via Webhooks Strava / Garmin / Apple Santé)
   externalActivityId  String?
-  sourceProvider      String?   // "strava", "garmin", "apple_health"
-  actualDistanceKm    Float?    // ex: 14.25
-  actualDurationSec   Int?      // ex: 4180
-  actualPace          String?   // ex: "4:53/km"
-  actualAvgHeartRate  Int?      // ex: 161
-  actualMaxHeartRate  Int?      // ex: 179
-  actualElevationGain Float?    // ex: 115.0
-  actualCalories      Int?      // ex: 820
-  actualCadence       Int?      // ex: 178
-  actualSplitsJson    Json?     // Détail km par km (splits_metric / laps)
+  sourceProvider      String? // "strava", "garmin", "apple_health"
+  actualDistanceKm    Float? // ex: 14.25
+  actualDurationSec   Int? // ex: 4180
+  actualPace          String? // ex: "4:53/km"
+  actualAvgHeartRate  Int? // ex: 161
+  actualMaxHeartRate  Int? // ex: 179
+  actualElevationGain Float? // ex: 115.0
+  actualCalories      Int? // ex: 820
+  actualCadence       Int? // ex: 178
+  actualSplitsJson    Json? // Détail km par km (splits_metric / laps)
   completedAt         DateTime?
   sportType           String?   @default("running") // "running", "cycling", "swimming", "strength", etc.
   isCommute           Boolean?  @default(false)
-  secondaryActivities Json?     // Array of { id, title, sportType, distanceKm, durationSec, durationLabel, paceOrSpeedLabel, isCommute }
+  secondaryActivities Json? // Array of { id, title, sportType, distanceKm, durationSec, durationLabel, paceOrSpeedLabel, isCommute }
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -211,4 +211,28 @@ model WebhookEvent {
   createdAt   DateTime  @default(now())
 
   @@map("webhook_events")
+}
+
+// ---------------------------------------------------------------------------
+// Waitlist (pre-auth signups captured from the landing page)
+// Kept separate from User: no password, no auth identity until beta invite.
+// ---------------------------------------------------------------------------
+model WaitlistEntry {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  goal        String? // semi | marathon | trail | 10k | reprise
+  source      String? // hero | navbar | simulator | footer
+  angle       String? // guilt | injury | garmin
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  locale      String   @default("fr")
+  consentAt   DateTime // horodatage RGPD de la case obligatoire
+  ipHash      String? // SHA-256 tronqué (anti-abus, jamais l'IP en clair)
+  status      String   @default("waiting") // waiting | invited | rejected
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@map("waitlist_entries")
 }

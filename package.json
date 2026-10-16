@@ -17,7 +17,11 @@
     "prisma:seed": "ts-node prisma/seed.ts",
     "prisma:studio": "prisma studio",
     "db:clean": "ts-node prisma/clean.ts",
-    "db:wipe": "ts-node prisma/clean.ts"
+    "db:wipe": "ts-node prisma/clean.ts",
+    "test": "jest",
+    "type-check": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint \"{src,test}/**/*.ts\" --max-warnings 0",
+    "test:integration": "node scripts/run-integrations.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",
@@ -39,13 +43,17 @@
   "devDependencies": {
     "@nestjs/cli": "^10.4.9",
     "@nestjs/schematics": "^10.2.3",
+    "@nestjs/testing": "^10.4.22",
     "@types/express": "^4.17.21",
+    "@types/jest": "^29.5.14",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20.17.10",
     "@types/passport-jwt": "^4.0.1",
     "dotenv": "^16.4.7",
+    "jest": "^29.7.0",
     "prisma": "^5.22.0",
     "source-map-support": "^0.5.21",
+    "ts-jest": "^29.4.15",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.7.2"

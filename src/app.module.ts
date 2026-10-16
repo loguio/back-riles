@@ -11,6 +11,10 @@ import { WebhooksModule } from "./modules/webhooks/webhooks.module";
 import { DataLakeModule } from "./modules/datalake/datalake.module";
 import { LlmModule } from "./modules/llm/llm.module";
 import { SupabaseAuthGuard } from "./modules/auth/guards/supabase-auth.guard";
+import { RateLimitGuard } from "./common/rate-limit/rate-limit.guard";
+import { HealthModule } from "./modules/health/health.module";
+import { WaitlistModule } from "./modules/waitlist/waitlist.module";
+import { MetricsService } from "./common/metrics/metrics.service";
 
 @Module({
   imports: [
@@ -27,12 +31,21 @@ import { SupabaseAuthGuard } from "./modules/auth/guards/supabase-auth.guard";
     WorkoutsModule,
     CoachModule,
     WebhooksModule,
+    HealthModule,
+    WaitlistModule,
   ],
   providers: [
     {
       provide: APP_GUARD,
       useClass: SupabaseAuthGuard,
     },
+    // Rate limiting runs after auth: protected routes already carry an identity,
+    // public routes are limited by IP.
+    {
+      provide: APP_GUARD,
+      useClass: RateLimitGuard,
+    },
+    MetricsService,
   ],
 })
 export class AppModule {}

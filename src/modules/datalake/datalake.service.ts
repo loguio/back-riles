@@ -21,7 +21,10 @@ export class DataLakeService implements OnModuleInit {
     this.bucketName =
       this.configService.get<string>("DATALAKE_BUCKET_NAME") ||
       "training-datalake";
-    this.localBaseDir = path.resolve(process.cwd(), "storage", "datalake");
+    this.localBaseDir = path.resolve(
+      this.configService.get<string>("DATALAKE_LOCAL_DIR") ||
+        path.resolve(process.cwd(), "storage", "datalake"),
+    );
   }
 
   onModuleInit() {
@@ -241,10 +244,12 @@ export class DataLakeService implements OnModuleInit {
           });
 
         if (error) {
-          this.logger.warn(
-            `⚠️ Réplication cloud Data Lake Storage (${this.bucketName}/${storagePath}) en attente : ${error.message} (Conservé localement).`,
+          // The local JSONL copy is kept, but the caller MUST know the cloud
+          // replication failed: returning true here silently loses data at scale.
+          this.logger.error(
+            `❌ Réplication cloud Data Lake Storage (${this.bucketName}/${storagePath}) échouée : ${error.message} (copie locale conservée).`,
           );
-          return true;
+          return false;
         }
       }
 
