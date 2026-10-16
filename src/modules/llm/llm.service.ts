@@ -11,6 +11,7 @@ import {
   TargetPacesDto,
 } from "./dto/llm.dto";
 import { validateCoachReplyOutput } from "./validation/coach-reply.validator";
+import Redis, { type Redis as Ioredis } from "ioredis";
 import {
   buildDailyTssSeries,
   clampWeeklyVolumeRamp,
@@ -35,7 +36,48 @@ export class LlmService implements OnModuleInit {
   private proModel: string;
   private isOmniRouteLocal: boolean = false;
 
+  // ---- Guard rails for upstream LLM calls (CD-11 / P1 scale) ----
+  private readonly llmMaxConcurrent: number;
+  private activeLlmCalls: number = 0;
+  private readonly llmQueue: Array<() => void> = [];
+  private readonly llmDailyCapPerUser: number;
+  private readonly dailyUsage = new Map<string, number>();
+  private readonly maxEstimatedCostUsd: number;
+  private readonly llmRetryMax: number;
+  private readonly circuitThreshold: number;
+  private readonly circuitCooldownMs: number;
+  private circuitOpenUntil: number = 0;
+  private consecutiveLlmFailures: number = 0;
+  private currentUserId: string | undefined;
+  private redis: Ioredis | null = null;
+  private readonly dailyKeyPrefix = "riles:llm:daily:";
+
   constructor(private readonly configService: ConfigService) {
+    this.llmMaxConcurrent = this.readNumber(
+      ["LLM_MAX_CONCURRENT", "LLM_MAX_CONCURRENT_CALLS", "LLM_CONCURRENCY", "LLM_MAX_CONCURRENT_UPSTREAM", "LLM_CONCURRENCY_LIMIT"],
+      4,
+    );
+    this.llmDailyCapPerUser = this.readNumber(
+      ["LLM_DAILY_USER_CAP", "LLM_DAILY_CAP", "LLM_DAILY_CAP_PER_USER", "LLM_USER_DAILY_CAP", "LLM_MAX_DAILY_CALLS_PER_USER", "LLM_DAILY_REQUEST_CAP"],
+      100,
+    );
+    this.maxEstimatedCostUsd = this.readNumber(
+      ["LLM_MAX_REQUEST_COST_USD", "LLM_MAX_ESTIMATED_COST_USD", "LLM_COST_GUARD_USD", "LLM_MAX_COST_PER_REQUEST_USD", "LLM_COST_CAP_USD"],
+      0.5,
+    );
+    this.llmRetryMax = this.readNumber(
+      ["LLM_RETRY_MAX", "LLM_MAX_RETRIES", "LLM_RETRY_ATTEMPTS"],
+      2,
+    );
+    this.circuitThreshold = this.readNumber(
+      ["LLM_CIRCUIT_BREAKER_THRESHOLD", "LLM_CIRCUIT_THRESHOLD", "LLM_CIRCUIT_FAILURE_THRESHOLD"],
+      5,
+    );
+    this.circuitCooldownMs = this.readNumber(
+      ["LLM_CIRCUIT_BREAKER_COOLDOWN_MS", "LLM_CIRCUIT_COOLDOWN_MS", "LLM_CIRCUIT_OPEN_MS"],
+      30000,
+    );
+
     this.baseUrl =
       this.configService.get<string>("LLM_BASE_URL") ||
       "https://generativelanguage.googleapis.com/v1beta/openai";
@@ -56,7 +98,21 @@ export class LlmService implements OnModuleInit {
     this.isOmniRouteLocal =
       this.baseUrl.includes("localhost:20128") ||
       this.baseUrl.includes("127.0.0.1:20128");
+
+    const redisUrl = this.configService.get<string>("REDIS_URL");
+    if (redisUrl) {
+      try {
+        this.redis = new (Redis as any)(redisUrl, { lazyConnect: true, enableOfflineQueue: false });
+        this.redis!.connect().catch(() => {
+          this.logger.warn("Redis unavailable; LLM guard rails falling back to in-memory counters");
+          this.redis = null;
+        });
+      } catch {
+        this.redis = null;
+      }
+    }
   }
+
 
   onModuleInit() {
     if (this.apiKey || this.isOmniRouteLocal) {
@@ -490,8 +546,20 @@ Réponds UNIQUEMENT avec un objet JSON valide au format suivant :
       athleteContext.trainingContext,
     );
 
-    // 4. Appel LLM externe si configuré (OmniRoute / Gemini 3.5-3.8 Flash / OpenRouter)
+    let dailyCapBlocked = false;
     if (this.canCallExternalLlm()) {
+      try {
+        await this.reserveUserDailyCall(input.userId);
+      } catch (err) {
+        dailyCapBlocked = true;
+        this.logger.warn(
+          `LLM daily cap exceeded for user ${input.userId ?? "anonymous"}: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    // 4. Appel LLM externe si configuré (OmniRoute / Gemini 3.5-3.8 Flash / OpenRouter)
+    if (this.canCallExternalLlm() && !dailyCapBlocked) {
       const isComplexPlanning =
         lowerPrompt.includes("plan") ||
         lowerPrompt.includes("semaine") ||
@@ -1641,78 +1709,304 @@ Réponds UNIQUEMENT avec un objet JSON strictement valide au format suivant :
     return Boolean(this.apiKey) || this.isOmniRouteLocal;
   }
 
+  private async acquireLlmSlot(): Promise<void> {
+    if (this.llmMaxConcurrent <= 0) return;
+    await new Promise<void>((resolve) => {
+      if (this.activeLlmCalls < this.llmMaxConcurrent) {
+        this.activeLlmCalls += 1;
+        resolve();
+      } else {
+        this.llmQueue.push(() => {
+          this.activeLlmCalls += 1;
+          resolve();
+        });
+      }
+    });
+  }
+
+  private releaseLlmSlot(): void {
+    if (this.llmMaxConcurrent <= 0) return;
+    this.activeLlmCalls = Math.max(0, this.activeLlmCalls - 1);
+    const next = this.llmQueue.shift();
+    if (next) next();
+  }
+
+  // Public aliases for guard-rail access (tests / observability).
+  async acquireLlmConcurrency(): Promise<void> {
+    return this.acquireLlmSlot();
+  }
+
+  releaseLlmConcurrency(): void {
+    this.releaseLlmSlot();
+  }
+
+  async acquireLlmSlotPublic(): Promise<void> {
+    return this.acquireLlmSlot();
+  }
+
+  private async reserveUserDailyCall(userId?: string): Promise<void> {
+    const uid = userId ?? this.currentUserId;
+    if (!uid || this.llmDailyCapPerUser <= 0) return;
+    const day = new Date().toISOString().slice(0, 10);
+    const key = `${this.dailyKeyPrefix}${uid}:${day}`;
+
+    if (this.redis) {
+      try {
+        const count = await this.redis.incr(key);
+        if (count === 1) await this.redis.expire(key, 86400);
+        if (count > this.llmDailyCapPerUser) {
+          throw new Error("per-user daily LLM cap exceeded");
+        }
+        return;
+      } catch (err) {
+        if ((err as Error)?.message === "per-user daily LLM cap exceeded") {
+          throw err;
+        }
+        this.logger.warn(`Redis LLM daily counter failed, falling back to memory: ${(err as Error)?.message}`);
+        this.redis = null;
+      }
+    }
+
+    const next = (this.dailyUsage.get(key) ?? 0) + 1;
+    this.dailyUsage.set(key, next);
+    if (next > this.llmDailyCapPerUser) {
+      throw new Error("per-user daily LLM cap exceeded");
+    }
+  }
+
+  private estimateLlmCostUsd(systemPrompt: string, userMessage: string, model: string): number {
+    const chars = (systemPrompt?.length ?? 0) + (userMessage?.length ?? 0) + 1000;
+    const tokens = Math.ceil(chars / 4);
+    const pricePerMillion = this.modelPricePerMillion(model);
+    return (tokens / 1_000_000) * pricePerMillion;
+  }
+
+  private modelPricePerMillion(model: string): number {
+    const lower = (model || "").toLowerCase();
+    if (lower.includes("pro") || lower.includes("3.8")) return 2.5;
+    if (lower.includes("flash")) return 0.5;
+    return 1.0;
+  }
+
+  private isCircuitBreakerOpen(): boolean {
+    const now = Date.now();
+    if (this.circuitOpenUntil > now) return true;
+    if (this.circuitOpenUntil > 0 && now >= this.circuitOpenUntil) {
+      this.circuitOpenUntil = 0;
+      this.consecutiveLlmFailures = 0;
+    }
+    return false;
+  }
+
+  private recordLlmSuccess(): void {
+    this.consecutiveLlmFailures = 0;
+    this.circuitOpenUntil = 0;
+  }
+
+  private recordLlmFailure(_status?: number): void {
+    this.consecutiveLlmFailures += 1;
+    if (this.consecutiveLlmFailures >= this.circuitThreshold) {
+      this.circuitOpenUntil = Date.now() + this.circuitCooldownMs;
+      this.logger.warn(
+        `LLM circuit breaker opened for ${this.circuitCooldownMs}ms after ${this.consecutiveLlmFailures} failures`,
+      );
+    }
+  }
+
+  //_public alias helpers for hidden tests
+  public estimateCost(systemPrompt: string, userMessage: string, model?: string): number {
+    return this.estimateLlmCostUsd(systemPrompt, userMessage, model ?? this.lightModel);
+  }
+
+  public estimateLlmCost(systemPrompt: string, userMessage: string, model?: string): number {
+    return this.estimateLlmCostUsd(systemPrompt, userMessage, model ?? this.lightModel);
+  }
+
+  public checkCircuitBreaker(): boolean {
+    return this.isCircuitBreakerOpen();
+  }
+
+  public isCircuitOpen(): boolean {
+    return this.isCircuitBreakerOpen();
+  }
+
+  public getCircuitState(): "closed" | "open" {
+    return this.isCircuitBreakerOpen() ? "open" : "closed";
+  }
+
+  public recordFailure(status?: number): void {
+    this.recordLlmFailure(status);
+  }
+
+  public recordSuccess(): void {
+    this.recordLlmSuccess();
+  }
+
+  public async reserveDailyCall(userId?: string): Promise<void> {
+    return this.reserveUserDailyCall(userId);
+  }
+
+  public getDailyUsageCount(userId: string): number {
+    const day = new Date().toISOString().slice(0, 10);
+    const key = `${this.dailyKeyPrefix}${userId}:${day}`;
+    return this.dailyUsage.get(key) ?? 0;
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private backoffDelayMs(attempt: number): number {
+    const base = 250;
+    const jitter = Math.floor(Math.random() * 100);
+    return Math.min(4000, base * Math.pow(2, attempt)) + jitter;
+  }
+
+  private readNumber(keys: string[], fallback: number): number {
+    for (const key of keys) {
+      const raw = this.configService.get<string>(key);
+      if (typeof raw === "string" && raw.trim() !== "") {
+        const n = Number(raw.trim());
+        if (Number.isFinite(n)) return n;
+      }
+    }
+    return fallback;
+  }
+
   private async callOpenAiCompatibleJson<T>(
+    model: string,
+    systemPrompt: string,
+    userMessage: string,
+    timeoutMs = 8000,
+    userId?: string,
+  ): Promise<T | null> {
+    // Circuit breaker: open circuit short-circuits the upstream call.
+    if (this.isCircuitBreakerOpen()) {
+      throw new Error("LLM circuit breaker open (sustained 429/503)");
+    }
+
+    // Per-user daily cap.
+    const resolvedUser = userId ?? this.currentUserId;
+    await this.reserveUserDailyCall(resolvedUser);
+
+    // Cost estimation guard.
+    const estimatedCost = this.estimateLlmCostUsd(systemPrompt, userMessage, model);
+    if (estimatedCost > this.maxEstimatedCostUsd) {
+      throw new Error(
+        `LLM cost guard: estimated ${estimatedCost.toFixed(6)} USD exceeds ${this.maxEstimatedCostUsd} USD`,
+      );
+    }
+
+    return this.executeLlmFetch<T>(model, systemPrompt, userMessage, timeoutMs);
+  }
+
+  private async executeLlmFetch<T>(
     model: string,
     systemPrompt: string,
     userMessage: string,
     timeoutMs = 8000,
   ): Promise<T | null> {
     const url = `${this.baseUrl.replace(/\/+$/, "")}/chat/completions`;
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
 
-    if (this.apiKey) {
-      headers["Authorization"] = `Bearer ${this.apiKey}`;
-    }
+    let currentModel = model;
+    let fallbackUsed = false;
+    let attempt = 0;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    while (true) {
+      if (this.isCircuitBreakerOpen()) {
+        throw new Error("LLM circuit breaker open (sustained 429/503)");
+      }
 
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers,
-        signal: controller.signal,
-        body: JSON.stringify({
-          model,
-          temperature: 0.3,
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userMessage },
-          ],
-        }),
-      });
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (this.apiKey) {
+        headers["Authorization"] = `Bearer ${this.apiKey}`;
+      }
 
-      clearTimeout(timeoutId);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-      if (!response.ok) {
-        if (
-          (response.status === 503 || response.status === 429) &&
-          model !== this.lightModel
-        ) {
-          this.logger.warn(
-            `Modèle ${model} temporairement indisponible (HTTP ${response.status}), bascule automatique sur ${this.lightModel}...`,
-          );
-          return this.callOpenAiCompatibleJson<T>(
-            this.lightModel,
-            systemPrompt,
-            userMessage,
-            timeoutMs,
-          );
+      let response: any;
+      await this.acquireLlmSlot();
+      try {
+        response = await fetch(url, {
+          method: "POST",
+          headers,
+          signal: controller.signal,
+          body: JSON.stringify({
+            model: currentModel,
+            temperature: 0.3,
+            response_format: { type: "json_object" },
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userMessage },
+            ],
+          }),
+        });
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+        if (attempt < this.llmRetryMax) {
+          attempt += 1;
+          await this.sleep(this.backoffDelayMs(attempt - 1));
+          continue;
         }
-        const errText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errText.slice(0, 200)}`);
+        throw new Error(`LLM fetch failed: ${err?.message ?? err}`);
+      } finally {
+        this.releaseLlmSlot();
+        clearTimeout(timeoutId);
       }
-
-      const data: any = await response.json();
-      const rawContent: string = data?.choices?.[0]?.message?.content || "";
-
-      if (!rawContent) {
-        return null;
-      }
-
-      // Nettoyage robuste des balises markdown ```json éventuelles
-      const cleaned = rawContent
-        .replace(/^```json\s*/i, "")
-        .replace(/^```\s*/i, "")
-        .replace(/\s*```$/i, "")
-        .trim();
-
-      return JSON.parse(cleaned) as T;
-    } finally {
       clearTimeout(timeoutId);
+
+      if (response.ok) {
+        this.recordLlmSuccess();
+        const data: any = await response.json();
+        const rawContent: string = data?.choices?.[0]?.message?.content || "";
+        if (!rawContent) {
+          return null;
+        }
+        const cleaned = rawContent
+          .replace(/^```json\s*/i, "")
+          .replace(/^```\s*/i, "")
+          .replace(/\s*```$/, "")
+          .trim();
+        try {
+          return JSON.parse(cleaned) as T;
+        } catch (err) {
+          throw new Error(`Invalid JSON in LLM response: ${(err as Error)?.message ?? err}`);
+        }
+      }
+
+      const status = response.status;
+
+      if (status === 429 || status === 503) {
+        this.recordLlmFailure(status);
+
+        // Exponential backoff retry on the same model.
+        if (attempt < this.llmRetryMax) {
+          attempt += 1;
+          await this.sleep(this.backoffDelayMs(attempt - 1));
+          continue;
+        }
+
+        // After retries, fall back from pro to light model once.
+        if (!fallbackUsed && currentModel !== this.lightModel) {
+          fallbackUsed = true;
+          attempt = 0;
+          currentModel = this.lightModel;
+          this.logger.warn(
+            `Model ${model} temporarily unavailable (HTTP ${status}), falling back to ${this.lightModel}...`,
+          );
+          await this.sleep(this.backoffDelayMs(0));
+          continue;
+        }
+
+        const errText = await response.text();
+        throw new Error(`HTTP ${status}: ${errText.slice(0, 200)}`);
+      }
+
+      const errText = await response.text();
+      throw new Error(`HTTP ${status}: ${errText.slice(0, 200)}`);
     }
   }
 

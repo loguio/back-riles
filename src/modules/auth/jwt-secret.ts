@@ -53,7 +53,44 @@ export function requireJwtSecret(resolve: (key: string) => unknown): string {
  * instantiated, so an unconfigured secret aborts `NestFactory.create()` with a
  * clear message instead of letting the app start with no usable auth.
  */
+export class MissingConfigError extends Error {
+  readonly name = "MissingConfigError";
+  readonly missing: string[];
+
+  constructor(missing: string[]) {
+    super(
+      "Configuration incomplète : variables manquantes — " +
+        missing.join(", ") +
+        ". Renseignez-les avant de démarrer le serveur.",
+    );
+    this.missing = missing;
+    Object.setPrototypeOf(this, MissingConfigError.prototype);
+  }
+}
+
+/** Env vars required in production in addition to the JWT secret. */
+export const REQUIRED_ENV_IN_PRODUCTION = [
+  "SUPABASE_URL",
+  "SUPABASE_SECRET_KEY",
+  "DATABASE_URL",
+] as const;
+
 export function validateEnv(config: Record<string, any>): Record<string, any> {
   requireJwtSecret((key) => config[key]);
+
+  const isProd =
+    String(config.NODE_ENV ?? process.env.NODE_ENV ?? "").toLowerCase() ===
+    "production";
+
+  if (isProd) {
+    const missing = REQUIRED_ENV_IN_PRODUCTION.filter((key) => {
+      const value = config[key];
+      return typeof value !== "string" || value.trim().length === 0;
+    });
+    if (missing.length > 0) {
+      throw new MissingConfigError([...missing]);
+    }
+  }
+
   return config;
 }

@@ -532,6 +532,7 @@ export class CoachService {
       }));
 
     const llmReply = await this.llmService.generateCoachReply({
+      userId,
       userPrompt: dto.text,
       conversationHistory,
       athleteContext,

@@ -228,6 +228,8 @@ export interface CoachChatTurn {
 }
 
 export interface LlmCoachReplyInput {
+  /** Optional user id, used for per-user LLM guard rails (daily cap, etc.). */
+  userId?: string;
   userPrompt: string;
   /** RILES-028 — Fenêtre bornée des messages récents (chronologique). */
   conversationHistory?: CoachChatTurn[];
