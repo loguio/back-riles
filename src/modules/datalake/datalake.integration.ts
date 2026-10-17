@@ -13,7 +13,7 @@ async function runDataLakeTests() {
   const mockSupabaseClient: any = {
     storage: {
       from: (bucket: string) => ({
-        upload: async (path: string, buffer: Buffer, options: any) => {
+        upload: async (path: string, buffer: Buffer, _options: any) => {
           if (uploadShouldFail) {
             return {
               data: null,
@@ -139,7 +139,7 @@ async function runDataLakeTests() {
   let result = false;
   try {
     result = await service.logTrainingInteraction(interactionPayload);
-  } catch (err) {
+  } catch {
     didThrow = true;
   }
   assert.strictEqual(
