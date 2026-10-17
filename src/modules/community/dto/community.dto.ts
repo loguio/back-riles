@@ -51,8 +51,12 @@ export class CommunityRunDto {
   @ApiProperty({ example: "Parc des Buttes-Chaumont, Paris" })
   location: string;
 
-  @ApiPropertyOptional({ example: "Sortie seuil en groupe" })
-  theme?: string;
+  @ApiPropertyOptional({
+    example: "Sortie seuil en groupe",
+    nullable: true,
+    description: "Peut être absent ou `null` (sortie sans thème).",
+  })
+  theme?: string | null;
 
   @ApiProperty({ example: 12 })
   participantCount: number;

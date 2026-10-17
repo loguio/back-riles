@@ -9,6 +9,14 @@ these shapes before the `CommunityModule` controller lands (B2, iteration 1).
 - Content type: `application/json`.
 - Timestamps: ISO-8601 UTC strings.
 - Canonical DTO source: `src/modules/community/dto/community.dto.ts`.
+- Validation: DTO validation runs through the global Nest `ValidationPipe`
+  (`src/main.ts`). A rejected DTO is answered **`400 Bad Request`** — the
+  exception status is passed straight through by `AllExceptionsFilter`, so the
+  API never emits `422`.
+- `prisma validate` / `prisma format` / `prisma generate` read the datasource
+  from the environment: export `DATABASE_URL` and `DIRECT_URL` (see
+  `.env.example`) before running them, otherwise Prisma aborts on an unset env
+  var.
 
 ## Shared types
 
@@ -47,7 +55,8 @@ Optional query: `clubId` (string) — filter to one club.
 ]
 ```
 
-`theme` is optional (may be absent or `null`). Empty list ⇒ `[]` (never `null`).
+`theme` is optional: the field may be **absent** or **`null`** (the DTO types it
+as `theme?: string | null`). Empty list ⇒ `[]` (never `null`).
 
 ## 2. `POST /api/v1/community/runs/:id/toggle`
 
@@ -89,6 +98,17 @@ Errors: `404` if the run does not exist.
 ]
 ```
 
+`unit`, `progress` and `progressRatio` are derived from the challenge's
+`metric`, aggregating the current user's own completed workouts whose
+`completedAt` falls inside `[periodStart, periodEnd]`:
+
+| metric      | unit       | progress                                       |
+| ----------- | ---------- | ---------------------------------------------- |
+| `distance`  | `km`       | Σ `actualDistanceKm`                           |
+| `duration`  | `min`      | Σ `actualDurationSec` ÷ 60                     |
+| `elevation` | `m`        | Σ `actualElevationGain`                        |
+| `sessions`  | `sessions` | count of completed workouts in the period      |
+
 `progressRatio = clamp(progress / target, 0, 1)`. Empty list ⇒ `[]`.
 
 ## Status codes
@@ -96,6 +116,10 @@ Errors: `404` if the run does not exist.
 | code | meaning                                          |
 | ---- | ------------------------------------------------ |
 | 200  | success (all three endpoints)                    |
+| 400  | validation failure (bad `action`, bad `clubId`)  |
 | 401  | missing/invalid bearer token                     |
 | 404  | run not found (toggle only)                      |
-| 422  | validation failure (bad `action`, bad `clubId`)  |
+
+Validation failures are **`400`**, not `422`: the global `ValidationPipe`
+throws a `BadRequestException`, and `AllExceptionsFilter` forwards that status
+unchanged.
