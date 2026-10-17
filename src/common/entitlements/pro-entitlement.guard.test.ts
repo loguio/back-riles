@@ -188,7 +188,7 @@ describe("ProEntitlementGuard — PAYWALL_ENFORCED", () => {
   });
 
   it("PAYWALL_ENFORCED=true (casse/espaces) → applique le 403", () => {
-    const guard = guardWithFlag(true, "TRUE");
+    const guard = guardWithFlag(true, "  TRUE  ");
     expect(() => guard.canActivate(basicContext())).toThrow(ForbiddenException);
   });
 

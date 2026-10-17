@@ -34,7 +34,11 @@ export class ProEntitlementGuard implements CanActivate {
   /** `true` uniquement si `PAYWALL_ENFORCED` vaut explicitement `"true"`. */
   private isPaywallEnforced(): boolean {
     const raw = this.configService?.get<string>("PAYWALL_ENFORCED");
-    return String(raw ?? "false").toLowerCase() === "true";
+    return (
+      String(raw ?? "false")
+        .trim()
+        .toLowerCase() === "true"
+    );
   }
 
   canActivate(context: ExecutionContext): boolean {

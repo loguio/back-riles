@@ -10,10 +10,12 @@ import {
 } from "./billing.types";
 
 /**
- * Secret de développement du provider factice. Surchargé par
- * `BILLING_WEBHOOK_SECRET` en environnement. Il n'a de sens que pour le stub :
- * le provider RevenueCat réel utilisera son propre secret (clé SDK / header
- * `X-RevenueCat-Signature`).
+ * Secret **de test** du provider factice. Il n'a de sens que pour les tests du
+ * stub : `billing.module.ts` ne le substitue **jamais** à
+ * `BILLING_WEBHOOK_SECRET` (fail-closed — cf. `requireWebhookSecret` dans
+ * `webhooks.service.ts`, RILES-005). Sans secret configuré, le endpoint public
+ * rejette toute livraison en 401. Le provider RevenueCat réel utilisera son
+ * propre secret (clé SDK / header `X-RevenueCat-Signature`).
  */
 export const FAKE_BILLING_WEBHOOK_SECRET = "fake-billing-dev-secret";
 
@@ -37,9 +39,12 @@ export const FAKE_BILLING_WEBHOOK_SECRET = "fake-billing-dev-secret";
  * identiques produisent le même résultat.
  */
 export class FakeBillingProvider implements BillingProvider {
-  constructor(
-    private readonly webhookSecret: string = FAKE_BILLING_WEBHOOK_SECRET,
-  ) {}
+  /**
+   * Le secret est **requis** : aucun défaut repo-connu n'est appliqué. Un
+   * secret vide/absent fait échouer `verifySignature` (fail-closed), donc
+   * toute livraison est rejetée en 401.
+   */
+  constructor(private readonly webhookSecret: string) {}
 
   verifyAndParseWebhook(
     payload: unknown,

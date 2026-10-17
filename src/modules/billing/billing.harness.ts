@@ -103,5 +103,21 @@ export function createBillingHarness(
   const service = new BillingService(prisma, provider);
   const controller = new BillingController(service);
 
+  // Transaction interactive : snapshot du store, restauré si le callback lève —
+  // même sémantique de rollback que PostgreSQL.
+  prisma.$transaction = jest.fn(async (fn: any) => {
+    const snapshotRows = [...store.webhookRows];
+    const snapshotUsers = new Map(
+      [...store.users].map(([id, user]) => [id, { ...user }]),
+    );
+    try {
+      return await fn(prisma);
+    } catch (err) {
+      store.webhookRows = snapshotRows;
+      store.users = snapshotUsers;
+      throw err;
+    }
+  });
+
   return { controller, service, provider, prisma, store };
 }

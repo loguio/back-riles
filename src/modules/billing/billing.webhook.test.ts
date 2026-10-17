@@ -1,5 +1,13 @@
-import { NotFoundException, UnauthorizedException } from "@nestjs/common";
+import {
+  NotFoundException,
+  RequestMethod,
+  UnauthorizedException,
+} from "@nestjs/common";
+import { PATH_METADATA, METHOD_METADATA } from "@nestjs/common/constants";
+import { Reflector } from "@nestjs/core";
 import { PlanType } from "@prisma/client";
+import { IS_PUBLIC_KEY } from "../../common/decorators/public.decorator";
+import { BillingController } from "./billing.controller";
 import {
   createBillingHarness,
   createBillingStore,
@@ -39,6 +47,8 @@ describe("POST /billing/webhook", () => {
       planType: PlanType.PRO,
       trialEndsAt: null,
     });
+    // Livraison + update dans la même transaction.
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(store.webhookRows).toHaveLength(1);
     expect(store.users.get("user-A").planType).toBe(PlanType.PRO);
   });
@@ -170,5 +180,50 @@ describe("POST /billing/webhook", () => {
     expect(result.message).toContain("no plan change");
     expect(store.webhookRows).toHaveLength(0);
     expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it("transaction : update en échec → livraison non consommée (rollback)", async () => {
+    const { controller, prisma, store } = createBillingHarness();
+    const payload = initialPurchase({ id: "evt_506" });
+    const { rawBody, signature } = signBillingPayload(payload);
+
+    prisma.user.update.mockRejectedValueOnce(new Error("db unavailable"));
+
+    await expect(
+      controller.handleWebhook({ rawBody } as any, payload as any, signature),
+    ).rejects.toThrow("db unavailable");
+
+    // L'enregistrement d'idempotence a été annulé : la livraison reste rejouable.
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(store.webhookRows).toHaveLength(0);
+  });
+});
+
+describe("BillingController — câblage de la route", () => {
+  it("POST /billing/webhook porte @Public() (exclu du SupabaseAuthGuard global)", () => {
+    const reflector = new Reflector();
+    const isPublic = reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      BillingController.prototype.handleWebhook,
+      BillingController,
+    ]);
+    expect(isPublic).toBe(true);
+  });
+
+  it("est monté sur POST billing/webhook", () => {
+    expect(Reflect.getMetadata(PATH_METADATA, BillingController)).toBe(
+      "billing",
+    );
+    expect(
+      Reflect.getMetadata(
+        PATH_METADATA,
+        BillingController.prototype.handleWebhook,
+      ),
+    ).toBe("webhook");
+    expect(
+      Reflect.getMetadata(
+        METHOD_METADATA,
+        BillingController.prototype.handleWebhook,
+      ),
+    ).toBe(RequestMethod.POST);
   });
 });

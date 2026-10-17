@@ -19,7 +19,7 @@ export class BillingWebhookDto {
   @ApiProperty({
     example: "initial_purchase",
     description:
-      "initial_purchase | renewal | trial_started | cancellation | expiration",
+      "initial_purchase | renewal | uncancellation | product_change | trial_started | cancellation | expiration",
   })
   @IsString()
   type: string;

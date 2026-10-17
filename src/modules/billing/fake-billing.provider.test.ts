@@ -26,7 +26,7 @@ function baseEvent(overrides: Partial<BillingEvent> = {}): BillingEvent {
 }
 
 describe("FakeBillingProvider.verifyAndParseWebhook", () => {
-  const provider = new FakeBillingProvider();
+  const provider = new FakeBillingProvider(FAKE_BILLING_WEBHOOK_SECRET);
 
   it("accepte un payload canonique correctement signé", () => {
     const payload = {
@@ -128,10 +128,15 @@ describe("FakeBillingProvider.verifyAndParseWebhook", () => {
 });
 
 describe("FakeBillingProvider.mapEventToPlanChange", () => {
-  const provider = new FakeBillingProvider();
+  const provider = new FakeBillingProvider(FAKE_BILLING_WEBHOOK_SECRET);
 
-  it("achat initial / renouvellement → PRO actif, essai effacé", () => {
-    for (const eventType of ["initial_purchase", "renewal", "uncancellation"]) {
+  it("achat initial / renouvellement / produit → PRO actif, essai effacé", () => {
+    for (const eventType of [
+      "initial_purchase",
+      "renewal",
+      "uncancellation",
+      "product_change",
+    ]) {
       const change = provider.mapEventToPlanChange(
         baseEvent({ eventType, trialEndsAt: new Date(TRIAL_END) }),
       );

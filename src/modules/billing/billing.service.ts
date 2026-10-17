@@ -6,6 +6,7 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
+import { runInTransaction, TransactionClient } from "../../prisma/transaction";
 import {
   BILLING_PROVIDER,
   BillingEvent,
@@ -77,20 +78,30 @@ export class BillingService {
       throw new NotFoundException("Unknown user for billing event");
     }
 
-    if (await this.recordEvent(event)) {
+    // Livraison + application du plan dans une **seule** transaction : si
+    // l'update échoue, l'enregistrement d'idempotence est annulé (rollback) et
+    // la livraison reste rejouable — jamais « consommée sans effet ».
+    const applied = await runInTransaction(this.prisma, async (tx) => {
+      if (await this.recordEvent(event, tx)) {
+        return false;
+      }
+
+      await tx.user.update({
+        where: { id: change.userId },
+        data: {
+          planType: change.planType,
+          trialEndsAt: change.trialEndsAt,
+        },
+      });
+      return true;
+    });
+
+    if (!applied) {
       return {
         success: false,
         message: "Duplicate billing delivery ignored (idempotent replay)",
       };
     }
-
-    await this.prisma.user.update({
-      where: { id: change.userId },
-      data: {
-        planType: change.planType,
-        trialEndsAt: change.trialEndsAt,
-      },
-    });
 
     this.logger.log(
       `Billing plan applied for user ${change.userId}: ${change.planType} (${change.status}).`,
@@ -102,9 +113,12 @@ export class BillingService {
   }
 
   /** `true` si la livraison est un doublon (déjà enregistrée). */
-  private async recordEvent(event: BillingEvent): Promise<boolean> {
+  private async recordEvent(
+    event: BillingEvent,
+    client: TransactionClient,
+  ): Promise<boolean> {
     try {
-      await this.prisma.webhookEvent.create({
+      await client.webhookEvent.create({
         data: {
           provider: "billing",
           eventType: event.eventType,

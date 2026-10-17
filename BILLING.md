@@ -45,6 +45,12 @@ Payload canonique du stub :
 
 Signature : `sha256=<hex HMAC-SHA256(BILLING_WEBHOOK_SECRET, corps brut)>`.
 
+**Fail-closed (RILES-005).** `BILLING_WEBHOOK_SECRET` est **requis** : le module
+ne substitue **aucun** secret par défaut repo-connu (même convention que
+`requireWebhookSecret` dans `webhooks.service.ts`). Sans secret configuré, le
+endpoint public rejette toute livraison en 401 — jamais de plan appliqué avec un
+secret connu de tous. Poser le secret avant d'exposer l'endpoint.
+
 Mapping `type` → plan (déterministe) :
 
 | `type`                                            | planType | trialEndsAt | status     |
@@ -63,7 +69,7 @@ règle `isPro()` (B3).
 | code | sens                                                              |
 | ---- | ----------------------------------------------------------------- |
 | 200  | livraison traitée, ou rejeu ignoré (`success: false`), ou no-op    |
-| 401  | signature absente/invalide ou payload malformé (fail-closed)       |
+| 401  | signature absente/invalide, payload malformé, ou secret non configuré (fail-closed) |
 | 404  | utilisateur cible inconnu                                          |
 
 ### Idempotence
@@ -74,6 +80,23 @@ contrainte que les webhooks sportifs (RILES-006). Un rejeu, y compris après
 redémarrage, est intercepté par la contrainte `P2002` et n'entraîne aucune
 seconde écriture. Un événement pour un utilisateur inconnu n'est **pas**
 enregistré : il reste rejouable une fois l'utilisateur créé.
+
+L'enregistrement d'idempotence et l'application du plan (`User.planType` /
+`User.trialEndsAt`) sont faits dans **une seule transaction** : si l'`update`
+échoue, l'enregistrement est annulé (rollback) et la livraison reste rejouable —
+elle n'est jamais « consommée sans effet ».
+
+### Ordre des livraisons
+
+Le traitement est **last-write-wins** : il n'y a **aucune garde d'ordre**. Une
+livraison applique l'état qu'elle porte, quel que soit l'ordre d'arrivée, et
+chaque `event.id` distinct est traité indépendamment (seuls les rejeux du *même*
+id sont ignorés). Un `cancellation` arrivé après un `renewal` plus récent
+écraserait donc le plan avec l'état le plus ancien. C'est acceptable pour le stub
+(les livraisons sont acquittées rapidement et le provider les ordonne côté
+émetteur) ; un provider réel devra ajouter un horodatage (`event_timestamp`) et
+un garde « n'appliquer que si plus récent que `webhook_events.processedAt` »
+avant mise en production.
 
 ## Basculer vers le vrai fournisseur (RevenueCat)
 
@@ -125,8 +148,11 @@ en arrière = `PAYWALL_ENFORCED=false` (aucune migration à annuler).
 ## Tests
 
 - `fake-billing.provider.test.ts` — vérification (signature, payload, secret
-  vide fail-closed) et mapping événement → plan/essai.
+  vide fail-closed) et mapping événement → plan/essai (`product_change` inclus).
 - `billing.webhook.test.ts` — application du plan, essai, idempotence (rejeu +
-  rejeu après redémarrage), 401, 404, no-op.
+  rejeu après redémarrage), atomicité (rollback si l'`update` échoue), 401, 404,
+  no-op, et câblage de la route (`@Public()` + `POST billing/webhook`). Pas de
+  test HTTP supertest : le repo n'a pas cette dépendance (test au niveau
+  métadonnées Nest).
 - `pro-entitlement.guard.test.ts` — comportement de la garde sous
-  `PAYWALL_ENFORCED=false` (défaut) et `true`.
+  `PAYWALL_ENFORCED=false` (défaut) et `true` (casse + espaces).
