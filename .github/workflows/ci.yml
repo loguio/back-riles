@@ -29,7 +29,12 @@ jobs:
         env:
           NODE_ENV: test
       - name: Apply database migrations (deploy)
-        run: npx prisma migrate deploy
+        run: |
+          if [ -z "${DATABASE_URL}" ] || [ -z "${DIRECT_URL}" ]; then
+            echo "DATABASE_URL/DIRECT_URL not configured; skipping 'prisma migrate deploy'."
+            exit 0
+          fi
+          npx prisma migrate deploy
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DIRECT_URL: ${{ secrets.DIRECT_URL }}

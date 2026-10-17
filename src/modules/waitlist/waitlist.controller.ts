@@ -1,4 +1,4 @@
-import { Body, Controller, Headers, HttpCode, HttpStatus, Post, Req } from "@nestjs/common";
+import { Body, Controller, HttpCode, HttpStatus, Post, Req } from "@nestjs/common";
 import { Public } from "../../common/decorators/public.decorator";
 import { CreateWaitlistEntryDto } from "./dto/waitlist.dto";
 import { WaitlistService } from "./waitlist.service";
