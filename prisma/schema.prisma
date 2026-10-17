@@ -67,6 +67,9 @@ model User {
 
   // Account Preferences & State
   planType              PlanType     @default(PRO)
+  // Fin de la période d'essai Pro (Phase 5B, B3). `null` = aucun essai.
+  // L'entitlement est calculé par `isPro()` : planType PRO OU essai non expiré.
+  trialEndsAt           DateTime?
   authProvider          AuthProvider @default(EMAIL)
   isOnboardingCompleted Boolean      @default(false)
   mainGoal              String?
