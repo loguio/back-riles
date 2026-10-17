@@ -89,6 +89,7 @@ async function bootstrap() {
       .addTag("Onboarding", "Parcours d'onboarding en 5 étapes")
       .addTag("Users & Profile", "Profil coureur, règles de vie & contraintes")
       .addTag("Workouts & Planning", "Calendrier d'entraînement, séances, notes RPE & adaptation")
+      .addTag("Community", "Clubs de course, sorties collectives & défis mensuels")
       .addTag("Coach & AI", "Chat contextuel Coach IA et suggestions d'ajustement")
       .addTag("Webhooks (Sports & Health)", "Ingestion automatique Strava, Garmin, Apple Health")
       .build();

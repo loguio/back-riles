@@ -6,6 +6,7 @@ import { AuthModule } from "./modules/auth/auth.module";
 import { UsersModule } from "./modules/users/users.module";
 import { OnboardingModule } from "./modules/onboarding/onboarding.module";
 import { WorkoutsModule } from "./modules/workouts/workouts.module";
+import { CommunityModule } from "./modules/community/community.module";
 import { CoachModule } from "./modules/coach/coach.module";
 import { WebhooksModule } from "./modules/webhooks/webhooks.module";
 import { DataLakeModule } from "./modules/datalake/datalake.module";
@@ -33,6 +34,7 @@ import { MetricsService } from "./common/metrics/metrics.service";
     UsersModule,
     OnboardingModule,
     WorkoutsModule,
+    CommunityModule,
     CoachModule,
     WebhooksModule,
     HealthModule,
