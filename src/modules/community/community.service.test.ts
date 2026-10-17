@@ -79,12 +79,35 @@ function createPrismaStub() {
       findMany: jest.fn(async () => challengeRows),
     },
     workout: {
-      findMany: jest.fn(async () => workoutRows),
+      // Honore `where.completedAt` : la fenêtre calculée par le service doit
+      // réellement filtrer les séances, pas seulement être passée à Prisma.
+      findMany: jest.fn(async ({ where }: any = {}) => {
+        const range = where?.completedAt;
+        return workoutRows.filter((row: any) => {
+          if (where?.userId && row.userId && row.userId !== where.userId) {
+            return false;
+          }
+          if (!range) {
+            return true;
+          }
+          const at = row.completedAt?.getTime?.() ?? null;
+          if (at == null) {
+            return false;
+          }
+          if (range.gte && at < range.gte.getTime()) {
+            return false;
+          }
+          if (range.lte && at > range.lte.getTime()) {
+            return false;
+          }
+          return true;
+        });
+      }),
     },
   };
 
-  // Transaction interactive : exécute le callback sur le même stub, comme le
-  // ferait Prisma. `coach.service.test.ts` suit la même convention.
+  // Conservé pour prouver que le service n'ouvre plus de transaction
+  // interactive (B8 rework) ; `coach.service.test.ts` garde la sienne.
   stub.$transaction = jest.fn(async (fn: any) => fn(stub));
 
   return {
@@ -275,13 +298,16 @@ describe("CommunityService.toggleParticipation", () => {
     expect(result.participantCount).toBe(2);
   });
 
-  it("regroupe lecture et écriture dans une transaction", async () => {
+  it("n'ouvre pas de transaction interactive (join/leave atomiques)", async () => {
     const { service, runs, stub } = buildService();
     seedRun(runs, "run-01");
 
     await service.toggleParticipation(USER_ID, "run-01", "join");
 
-    expect(stub.$transaction).toHaveBeenCalledTimes(1);
+    // B8 (rework) — `upsert`/`deleteMany` sont déjà atomiques : inutile
+    // d'ajouter `maxWait`/`timeout` (P2028) et la tenue d'une connexion.
+    expect(stub.$transaction).not.toHaveBeenCalled();
+    expect(stub.communityRunParticipant.upsert).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -332,10 +358,33 @@ describe("CommunityService.getChallenges", () => {
       progress: 20,
       progressRatio: 0.2,
     });
-    // Ne lit que les séances de l'utilisateur courant.
+    // Ne lit que les séances de l'utilisateur courant, bornées à la fenêtre
+    // `completedAt` dérivée des périodes des défis (B8).
     expect(stub.workout.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ userId: USER_ID }),
+        where: expect.objectContaining({
+          userId: USER_ID,
+          completedAt: {
+            gte: PERIOD_OCT.periodStart,
+            lte: PERIOD_OCT.periodEnd,
+          },
+        }),
+      }),
+    );
+  });
+
+  it("ne requête que les défis couvrant la date courante (periodStart <= now <= periodEnd)", async () => {
+    const { service, stub } = buildService();
+
+    await service.getChallenges(USER_ID);
+
+    expect(stub.monthlyChallenge.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          periodStart: { lte: expect.any(Date) },
+          periodEnd: { gte: expect.any(Date) },
+        }),
+        orderBy: { periodStart: "asc" },
       }),
     );
   });

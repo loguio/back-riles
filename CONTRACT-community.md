@@ -77,13 +77,16 @@ Path param `id` = run id. Body optional:
 - no body / `{}` → flip current state.
 
 `join` and `leave` are **idempotent and race-free** (backed by an atomic
-`upsert` / `deleteMany`). The bodyless **toggle** reads the current state then
-writes, all inside a single database transaction, but with the default
-read-committed isolation it remains **best-effort** under two *identical*
-concurrent toggle requests: the outcome is still a consistent `isJoined` +
-`participantCount` pair (never a half-written state), but it is
-last-writer-wins rather than a guaranteed double-flip. Clients that need a
-deterministic result should send an explicit `action`.
+`upsert` / `deleteMany`). The bodyless **toggle** reads the current state, then
+writes it in a separate statement — there is **no interactive database
+transaction** (read-committed cannot serialize the read + write, so wrapping
+them would only add failure modes — `$transaction` `maxWait`/`timeout` →
+`P2028` — and hold a connection longer, without changing the race outcome).
+Under two *identical* concurrent toggle requests the result is therefore
+**best-effort**: still a consistent `isJoined` + `participantCount` pair (never
+a half-written state), but last-writer-wins rather than a guaranteed
+double-flip. Clients that need a deterministic result should send an explicit
+`action`.
 
 **200 response** — `ToggleRunParticipationResponse`:
 

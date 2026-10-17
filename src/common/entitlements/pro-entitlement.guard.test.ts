@@ -1,8 +1,9 @@
 import "reflect-metadata";
 import { ForbiddenException } from "@nestjs/common";
+import { Reflector } from "@nestjs/core";
 import { PlanType } from "@prisma/client";
 import { ProEntitlementGuard } from "./pro-entitlement.guard";
-import { REQUIRE_PRO_KEY } from "./require-pro.decorator";
+import { REQUIRE_PRO_KEY, RequirePro } from "./require-pro.decorator";
 
 /**
  * Phase 5B (B3/B7) — ProEntitlementGuard.
@@ -10,10 +11,15 @@ import { REQUIRE_PRO_KEY } from "./require-pro.decorator";
  * La garde ne s'active que sur les routes `@RequirePro()` : un utilisateur non
  * entitled reçoit un `403`, les routes sans métadonnée passent sans changement.
  * L'entitlement vient de `request.user`, jamais d'un en-tête client.
+ *
+ * La garde lit l'horloge réelle (`isPro(user)` sans `now`) : les essais sont
+ * donc exprimés en dates relatives pour rester indépendants de la date
+ * d'exécution (un `ACTIVE_TRIAL` figé expirerait un jour).
  */
 
-const ACTIVE_TRIAL = new Date("2026-11-01T00:00:00.000Z");
-const EXPIRED_TRIAL = new Date("2026-10-01T00:00:00.000Z");
+const DAY_MS = 864e5;
+const ACTIVE_TRIAL = new Date(Date.now() + 30 * DAY_MS);
+const EXPIRED_TRIAL = new Date(Date.now() - 30 * DAY_MS);
 
 function createGuard(required: boolean) {
   const reflector: any = { getAllAndOverride: jest.fn(() => required) };
@@ -101,5 +107,30 @@ describe("ProEntitlementGuard", () => {
       context.getHandler(),
       context.getClass(),
     ]);
+  });
+
+  it("câble @RequirePro() → clé via un vrai Reflector (handler décoré)", () => {
+    // Bout-en-bout du décorateur : le `SetMetadata` de `@RequirePro()` est
+    // réellement lu par le `Reflector` de Nest, pas simulé.
+    const guard = new ProEntitlementGuard(new Reflector());
+
+    class ProtectedController {
+      @RequirePro()
+      handler() {}
+    }
+
+    const request: any = {
+      user: { planType: PlanType.BASIC, trialEndsAt: null },
+    };
+    const context: any = {
+      getHandler: () => ProtectedController.prototype.handler,
+      getClass: () => ProtectedController,
+      switchToHttp: () => ({ getRequest: () => request }),
+    };
+
+    expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
+
+    request.user = { planType: PlanType.PRO, trialEndsAt: null };
+    expect(guard.canActivate(context)).toBe(true);
   });
 });

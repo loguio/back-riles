@@ -67,47 +67,48 @@ export class CommunityService {
     runId: string,
     action?: "join" | "leave",
   ): Promise<ToggleRunParticipationResponseDto> {
-    // B8 — lecture (existence + inscription) et écriture sont regroupées dans
-    // une même transaction : le compteur renvoyé reflète l'écriture, et les
-    // bascules `join`/`leave` restent idempotentes (upsert/deleteMany). La
-    // bascule sans `action` reste « best-effort » sous requêtes concurrentes
-    // identiques (voir CONTRACT-community.md §2).
-    return this.prisma.$transaction(async (tx) => {
-      const run = await tx.communityRun.findUnique({
-        where: { id: runId },
-        select: { id: true },
-      });
-      if (!run) {
-        throw new NotFoundException(`Sortie introuvable : ${runId}`);
-      }
-
-      const existing = await tx.communityRunParticipant.findUnique({
-        where: { runId_userId: { runId, userId } },
-        select: { id: true },
-      });
-
-      const targetJoined =
-        action === "join" ? true : action === "leave" ? false : !existing;
-
-      if (targetJoined) {
-        // upsert : idempotent et insensible à une course entre deux requêtes.
-        await tx.communityRunParticipant.upsert({
-          where: { runId_userId: { runId, userId } },
-          create: { runId, userId },
-          update: {},
-        });
-      } else {
-        await tx.communityRunParticipant.deleteMany({
-          where: { runId, userId },
-        });
-      }
-
-      const participantCount = await tx.communityRunParticipant.count({
-        where: { runId },
-      });
-
-      return { runId, isJoined: targetJoined, participantCount };
+    // B8 (rework) — pas de transaction interactive : `join` (upsert) et `leave`
+    // (deleteMany) sont déjà atomiques au niveau base. La lecture (existence +
+    // inscription) puis l'écriture de la bascule sans `action` restent deux
+    // instructions en read-committed, donc « best-effort » sous requêtes
+    // concurrentes identiques (voir CONTRACT-community.md §2). Envelopper le
+    // tout dans `$transaction` n'aurait rien sérialisé : cela aurait seulement
+    // ajouté des modes de défaillance (`maxWait`/`timeout` → P2028) et retenu
+    // une connexion plus longtemps.
+    const run = await this.prisma.communityRun.findUnique({
+      where: { id: runId },
+      select: { id: true },
     });
+    if (!run) {
+      throw new NotFoundException(`Sortie introuvable : ${runId}`);
+    }
+
+    const existing = await this.prisma.communityRunParticipant.findUnique({
+      where: { runId_userId: { runId, userId } },
+      select: { id: true },
+    });
+
+    const targetJoined =
+      action === "join" ? true : action === "leave" ? false : !existing;
+
+    if (targetJoined) {
+      // upsert : idempotent et insensible à une course entre deux requêtes.
+      await this.prisma.communityRunParticipant.upsert({
+        where: { runId_userId: { runId, userId } },
+        create: { runId, userId },
+        update: {},
+      });
+    } else {
+      await this.prisma.communityRunParticipant.deleteMany({
+        where: { runId, userId },
+      });
+    }
+
+    const participantCount = await this.prisma.communityRunParticipant.count({
+      where: { runId },
+    });
+
+    return { runId, isJoined: targetJoined, participantCount };
   }
 
   /**
