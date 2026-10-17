@@ -21,9 +21,18 @@ const DAY_MS = 864e5;
 const ACTIVE_TRIAL = new Date(Date.now() + 30 * DAY_MS);
 const EXPIRED_TRIAL = new Date(Date.now() - 30 * DAY_MS);
 
-function createGuard(required: boolean) {
+function createGuard(required: boolean, enforced = true) {
   const reflector: any = { getAllAndOverride: jest.fn(() => required) };
-  return { guard: new ProEntitlementGuard(reflector), reflector };
+  const configService: any = {
+    get: jest.fn((key: string) =>
+      key === "PAYWALL_ENFORCED" ? (enforced ? "true" : "false") : undefined,
+    ),
+  };
+  return {
+    guard: new ProEntitlementGuard(reflector, configService),
+    reflector,
+    configService,
+  };
 }
 
 function createContext(user?: unknown) {
@@ -112,7 +121,9 @@ describe("ProEntitlementGuard", () => {
   it("câble @RequirePro() → clé via un vrai Reflector (handler décoré)", () => {
     // Bout-en-bout du décorateur : le `SetMetadata` de `@RequirePro()` est
     // réellement lu par le `Reflector` de Nest, pas simulé.
-    const guard = new ProEntitlementGuard(new Reflector());
+    const guard = new ProEntitlementGuard(new Reflector(), {
+      get: (key: string) => (key === "PAYWALL_ENFORCED" ? "true" : undefined),
+    } as any);
 
     class ProtectedController {
       @RequirePro()
@@ -132,5 +143,57 @@ describe("ProEntitlementGuard", () => {
 
     request.user = { planType: PlanType.PRO, trialEndsAt: null };
     expect(guard.canActivate(context)).toBe(true);
+  });
+});
+
+/**
+ * Phase 5B (B4) — interrupteur de lancement `PAYWALL_ENFORCED`.
+ *
+ * Par défaut (`false` ou variable absente) la garde n'applique aucun 403, même
+ * sur une route `@RequirePro()` : le comportement bêta actuel est préservé.
+ * Ce n'est qu'avec `PAYWALL_ENFORCED=true` que l'entitlement est réellement
+ * appliqué.
+ */
+describe("ProEntitlementGuard — PAYWALL_ENFORCED", () => {
+  function guardWithFlag(required: boolean, raw: string | undefined) {
+    const reflector: any = { getAllAndOverride: jest.fn(() => required) };
+    const configService: any = { get: jest.fn(() => raw) };
+    return new ProEntitlementGuard(reflector, configService);
+  }
+
+  function basicContext() {
+    const request = {
+      user: { planType: PlanType.BASIC, trialEndsAt: null },
+    };
+    return {
+      getHandler: () => ({}),
+      getClass: () => ({}),
+      switchToHttp: () => ({ getRequest: () => request }),
+    } as any;
+  }
+
+  it("PAYWALL_ENFORCED=false → laisse passer un BASIC sans essai (bêta)", () => {
+    const guard = guardWithFlag(true, "false");
+    expect(guard.canActivate(basicContext())).toBe(true);
+  });
+
+  it("PAYWALL_ENFORCED absent → défaut false, laisse passer (bêta)", () => {
+    const guard = guardWithFlag(true, undefined);
+    expect(guard.canActivate(basicContext())).toBe(true);
+  });
+
+  it("PAYWALL_ENFORCED=true → applique le 403 sur un BASIC sans essai", () => {
+    const guard = guardWithFlag(true, "true");
+    expect(() => guard.canActivate(basicContext())).toThrow(ForbiddenException);
+  });
+
+  it("PAYWALL_ENFORCED=true (casse/espaces) → applique le 403", () => {
+    const guard = guardWithFlag(true, "TRUE");
+    expect(() => guard.canActivate(basicContext())).toThrow(ForbiddenException);
+  });
+
+  it("le drapeau n'a aucun effet sur une route sans @RequirePro()", () => {
+    const guard = guardWithFlag(false, "true");
+    expect(guard.canActivate(basicContext())).toBe(true);
   });
 });
