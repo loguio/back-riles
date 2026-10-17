@@ -26,6 +26,13 @@ enum PlanType {
   PRO   @map("pro")
 }
 
+enum ChallengeMetric {
+  DISTANCE  @map("distance")
+  DURATION  @map("duration")
+  ELEVATION @map("elevation")
+  SESSIONS  @map("sessions")
+}
+
 model User {
   id             String  @id @default(cuid())
   email          String  @unique
@@ -49,21 +56,24 @@ model User {
   completedRaces Int    @default(0)
   atlFatigue     Float  @default(0) // Charge aiguë 7j (Fatigue)
   ctlFitness     Float  @default(0) // Charge chronique 42j (Fitness)
-  tsbForm        Float  @default(0)   // Balance de stress (Forme = CTL - ATL)
+  tsbForm        Float  @default(0) // Balance de stress (Forme = CTL - ATL)
   sleepScore     Int    @default(0)
   hrvStatus      String @default("")
   // FC max de l'athlète (RILES-021) : l'IF/TSS est calculé sur cette valeur,
   // jamais sur la FC max observée sur la séance. `null` = estimation
   // documentée (DEFAULT_ATHLETE_HRMAX).
-  hrMax  Int?
-  restHr Int?
+  hrMax          Int?
+  restHr         Int?
 
   // Account Preferences & State
   planType              PlanType     @default(PRO)
+  // Fin de la période d'essai Pro (Phase 5B, B3). `null` = aucun essai.
+  // L'entitlement est calculé par `isPro()` : planType PRO OU essai non expiré.
+  trialEndsAt           DateTime?
   authProvider          AuthProvider @default(EMAIL)
   isOnboardingCompleted Boolean      @default(false)
   mainGoal              String?
-  selectedSports        String[] @default([])
+  selectedSports        String[]     @default([])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -74,6 +84,10 @@ model User {
   rpeCheckIns  RpeCheckIn[]
   syncTokens   SyncToken[]
   chatMessages ChatMessage[]
+
+  // Community (Phase 5B)
+  ownedClubs        RunningClub[]
+  runParticipations CommunityRunParticipant[]
 
   @@map("users")
 }
@@ -118,27 +132,27 @@ model Workout {
   effortBlocks       Json // Array of EffortBlock { title, durationLabel, type, flexRatio }
   tags               String[]      @default([])
   aiAdjustmentNote   String?
-  tss                Float?        // Training Stress Score de la séance
-  sRpe               Float?        // Charge sRPE = RPE × durée(min) (RILES-027)
+  tss                Float? // Training Stress Score de la séance
+  sRpe               Float? // Charge sRPE = RPE × durée(min) (RILES-027)
 
   // Données complètes de la vraie séance réalisée (récupérées via Webhooks Strava / Garmin / Apple Santé)
   // Unique : une activité externe ne peut être écrite qu'une seule fois
   // (anti-rejeu / anti-double-écriture cross-utilisateur — RILES-006)
   externalActivityId  String?   @unique
-  sourceProvider      String?   // "strava", "garmin", "apple_health"
-  actualDistanceKm    Float?    // ex: 14.25
-  actualDurationSec   Int?      // ex: 4180
-  actualPace          String?   // ex: "4:53/km"
-  actualAvgHeartRate  Int?      // ex: 161
-  actualMaxHeartRate  Int?      // ex: 179
-  actualElevationGain Float?    // ex: 115.0
-  actualCalories      Int?      // ex: 820
-  actualCadence       Int?      // ex: 178
-  actualSplitsJson    Json?     // Détail km par km (splits_metric / laps)
+  sourceProvider      String? // "strava", "garmin", "apple_health"
+  actualDistanceKm    Float? // ex: 14.25
+  actualDurationSec   Int? // ex: 4180
+  actualPace          String? // ex: "4:53/km"
+  actualAvgHeartRate  Int? // ex: 161
+  actualMaxHeartRate  Int? // ex: 179
+  actualElevationGain Float? // ex: 115.0
+  actualCalories      Int? // ex: 820
+  actualCadence       Int? // ex: 178
+  actualSplitsJson    Json? // Détail km par km (splits_metric / laps)
   completedAt         DateTime?
   sportType           String?   @default("running") // "running", "cycling", "swimming", "strength", etc.
   isCommute           Boolean?  @default(false)
-  secondaryActivities Json?     // Array of { id, title, sportType, distanceKm, durationSec, durationLabel, paceOrSpeedLabel, isCommute }
+  secondaryActivities Json? // Array of { id, title, sportType, distanceKm, durationSec, durationLabel, paceOrSpeedLabel, isCommute }
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -246,4 +260,72 @@ model WaitlistEntry {
 
   @@index([status, createdAt])
   @@map("waitlist_entries")
+}
+
+// ---------------------------------------------------------------------------
+// Community (Phase 5B) — clubs de course, sorties collectives, participants
+// et défis mensuels. Strictement additif : aucune table existante modifiée.
+// ---------------------------------------------------------------------------
+
+model RunningClub {
+  id          String @id @default(cuid())
+  name        String
+  slug        String @unique
+  description String
+  ownerId     String
+  owner       User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  communityRuns CommunityRun[]
+
+  @@index([ownerId])
+  @@map("running_clubs")
+}
+
+model CommunityRun {
+  id          String      @id @default(cuid())
+  clubId      String
+  club        RunningClub @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  scheduledAt DateTime
+  location    String
+  theme       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  participants CommunityRunParticipant[]
+
+  @@index([clubId, scheduledAt])
+  @@index([scheduledAt])
+  @@map("community_runs")
+}
+
+model CommunityRunParticipant {
+  id       String       @id @default(cuid())
+  runId    String
+  run      CommunityRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt DateTime     @default(now())
+
+  @@unique([runId, userId])
+  @@index([userId, joinedAt])
+  @@map("community_run_participants")
+}
+
+model MonthlyChallenge {
+  id          String          @id @default(cuid())
+  title       String
+  metric      ChallengeMetric
+  target      Float
+  periodStart DateTime
+  periodEnd   DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([periodStart, periodEnd])
+  @@map("monthly_challenges")
 }
