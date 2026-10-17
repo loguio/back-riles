@@ -35,6 +35,12 @@ these shapes before the `CommunityModule` controller lands (B2, iteration 1).
 
 Optional query: `clubId` (string) — filter to one club.
 
+**Scope: upcoming only.** The endpoint returns runs whose `scheduledAt` is at or
+after the server's current time (`scheduledAt >= now`), ordered by
+`scheduledAt` ascending. Past runs are **never** returned — the front-end must
+not expect historical rows from this endpoint (there is no pagination or
+history parameter). A run that has already started disappears from the list.
+
 **200 response** — JSON array of `CommunityRun`:
 
 ```json
@@ -70,6 +76,15 @@ Path param `id` = run id. Body optional:
 - `action: "leave"` → idempotently ensure not joined.
 - no body / `{}` → flip current state.
 
+`join` and `leave` are **idempotent and race-free** (backed by an atomic
+`upsert` / `deleteMany`). The bodyless **toggle** reads the current state then
+writes, all inside a single database transaction, but with the default
+read-committed isolation it remains **best-effort** under two *identical*
+concurrent toggle requests: the outcome is still a consistent `isJoined` +
+`participantCount` pair (never a half-written state), but it is
+last-writer-wins rather than a guaranteed double-flip. Clients that need a
+deterministic result should send an explicit `action`.
+
 **200 response** — `ToggleRunParticipationResponse`:
 
 ```json
@@ -79,6 +94,12 @@ Path param `id` = run id. Body optional:
 Errors: `404` if the run does not exist.
 
 ## 3. `GET /api/v1/community/challenges`
+
+**Scope: active period only.** The endpoint returns challenges whose period
+covers the server's current time (`periodStart <= now <= periodEnd`), ordered by
+`periodStart` ascending. Challenges that have not started or have already ended
+are **never** returned — the front-end must not expect historical or future
+rows from this endpoint.
 
 **200 response** — JSON array of `MonthlyChallenge`:
 

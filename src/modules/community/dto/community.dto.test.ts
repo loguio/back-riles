@@ -61,8 +61,11 @@ describe("GetCommunityRunsQueryDto validation", () => {
     await expect(validate(dto)).resolves.toEqual([]);
   });
 
-  it("rejects a non-string clubId", async () => {
-    const dto = plainToInstance(GetCommunityRunsQueryDto, { clubId: 42 });
+  it("rejects a repeated clubId (query params parse to a string[])", async () => {
+    // `?clubId=a&clubId=b` arrives as an array; @IsString() must reject it.
+    const dto = plainToInstance(GetCommunityRunsQueryDto, {
+      clubId: ["club-01", "club-02"],
+    });
 
     const errors = await validate(dto);
 

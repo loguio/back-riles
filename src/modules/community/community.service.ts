@@ -19,6 +19,7 @@ type RunWithRelations = Prisma.CommunityRunGetPayload<{
 
 /** Séance réalisée réduite aux métriques agrégées par un défi. */
 type WorkoutMetrics = {
+  completedAt: Date | null;
   actualDistanceKm: number | null;
   actualDurationSec: number | null;
   actualElevationGain: number | null;
@@ -66,40 +67,47 @@ export class CommunityService {
     runId: string,
     action?: "join" | "leave",
   ): Promise<ToggleRunParticipationResponseDto> {
-    const run = await this.prisma.communityRun.findUnique({
-      where: { id: runId },
-      select: { id: true },
-    });
-    if (!run) {
-      throw new NotFoundException(`Sortie introuvable : ${runId}`);
-    }
+    // B8 — lecture (existence + inscription) et écriture sont regroupées dans
+    // une même transaction : le compteur renvoyé reflète l'écriture, et les
+    // bascules `join`/`leave` restent idempotentes (upsert/deleteMany). La
+    // bascule sans `action` reste « best-effort » sous requêtes concurrentes
+    // identiques (voir CONTRACT-community.md §2).
+    return this.prisma.$transaction(async (tx) => {
+      const run = await tx.communityRun.findUnique({
+        where: { id: runId },
+        select: { id: true },
+      });
+      if (!run) {
+        throw new NotFoundException(`Sortie introuvable : ${runId}`);
+      }
 
-    const existing = await this.prisma.communityRunParticipant.findUnique({
-      where: { runId_userId: { runId, userId } },
-      select: { id: true },
-    });
-
-    const targetJoined =
-      action === "join" ? true : action === "leave" ? false : !existing;
-
-    if (targetJoined) {
-      // upsert : idempotent et insensible à une course entre deux requêtes.
-      await this.prisma.communityRunParticipant.upsert({
+      const existing = await tx.communityRunParticipant.findUnique({
         where: { runId_userId: { runId, userId } },
-        create: { runId, userId },
-        update: {},
+        select: { id: true },
       });
-    } else {
-      await this.prisma.communityRunParticipant.deleteMany({
-        where: { runId, userId },
-      });
-    }
 
-    const participantCount = await this.prisma.communityRunParticipant.count({
-      where: { runId },
+      const targetJoined =
+        action === "join" ? true : action === "leave" ? false : !existing;
+
+      if (targetJoined) {
+        // upsert : idempotent et insensible à une course entre deux requêtes.
+        await tx.communityRunParticipant.upsert({
+          where: { runId_userId: { runId, userId } },
+          create: { runId, userId },
+          update: {},
+        });
+      } else {
+        await tx.communityRunParticipant.deleteMany({
+          where: { runId, userId },
+        });
+      }
+
+      const participantCount = await tx.communityRunParticipant.count({
+        where: { runId },
+      });
+
+      return { runId, isJoined: targetJoined, participantCount };
     });
-
-    return { runId, isJoined: targetJoined, participantCount };
   }
 
   /**
@@ -116,8 +124,37 @@ export class CommunityService {
       orderBy: { periodStart: "asc" },
     });
 
-    return Promise.all(
-      challenges.map((challenge) => this.mapChallenge(challenge, userId)),
+    if (challenges.length === 0) {
+      return [];
+    }
+
+    // B8 — une seule requête `workout` pour tous les défis (avant : un
+    // `findMany` par défi, N+1). On charge la fenêtre englobante puis on
+    // répartit en mémoire par période de défi.
+    const windowStart = new Date(
+      Math.min(
+        ...challenges.map((challenge) => challenge.periodStart.getTime()),
+      ),
+    );
+    const windowEnd = new Date(
+      Math.max(...challenges.map((challenge) => challenge.periodEnd.getTime())),
+    );
+
+    const workouts = await this.prisma.workout.findMany({
+      where: {
+        userId,
+        completedAt: { gte: windowStart, lte: windowEnd },
+      },
+      select: {
+        completedAt: true,
+        actualDistanceKm: true,
+        actualDurationSec: true,
+        actualElevationGain: true,
+      },
+    });
+
+    return challenges.map((challenge) =>
+      this.mapChallenge(challenge, workouts),
     );
   }
 
@@ -142,7 +179,7 @@ export class CommunityService {
     };
   }
 
-  private async mapChallenge(
+  private mapChallenge(
     challenge: {
       id: string;
       title: string;
@@ -151,24 +188,22 @@ export class CommunityService {
       periodStart: Date;
       periodEnd: Date;
     },
-    userId: string,
-  ): Promise<MonthlyChallengeDto> {
-    const workouts = await this.prisma.workout.findMany({
-      where: {
-        userId,
-        completedAt: { gte: challenge.periodStart, lte: challenge.periodEnd },
-      },
-      select: {
-        actualDistanceKm: true,
-        actualDurationSec: true,
-        actualElevationGain: true,
-      },
-    });
+    workouts: WorkoutMetrics[],
+  ): MonthlyChallengeDto {
+    // Ne comptent que les séances de l'utilisateur courant (déjà filtrées par
+    // `userId`) dont `completedAt` tombe dans la période du défi.
+    const inPeriod = workouts.filter(
+      (workout) =>
+        workout.completedAt != null &&
+        workout.completedAt >= challenge.periodStart &&
+        workout.completedAt <= challenge.periodEnd,
+    );
 
     // Prisma exposes enum members in UPPER_CASE ("DISTANCE"); the API contract
     // (and the DB @map) use lower-case ("distance").
-    const metric = challenge.metric.toLowerCase() as MonthlyChallengeDto["metric"];
-    const { progress, unit } = this.computeProgress(metric, workouts);
+    const metric =
+      challenge.metric.toLowerCase() as MonthlyChallengeDto["metric"];
+    const { progress, unit } = this.computeProgress(metric, inPeriod);
     const progressRatio =
       challenge.target > 0
         ? Math.min(Math.max(progress / challenge.target, 0), 1)
